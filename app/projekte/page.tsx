@@ -3,9 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+import { PageContainer } from '@/components/page-container';
 
 type Project = { id: string; name: string; company_id: string | null; firma: string | null };
 
@@ -34,51 +32,46 @@ export default function ProjektePage() {
   }, {});
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-xl mx-auto px-4 pb-24">
-        <div className="pt-8 pb-4">
-          <h1 className="text-lg font-semibold">Projekte</h1>
-          <p className="text-xs text-muted-foreground">{projects.length} Projekte</p>
+    <PageContainer>
+        <div className="pt-8 pb-6 md:pt-6">
+          <h1 className="text-2xl font-bold tracking-tight">Projekte</h1>
+          <p className="text-xs font-mono text-muted-foreground mt-1 tracking-wide">{projects.length} Projekte</p>
         </div>
 
-        <Input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Projekt oder Firma suchen…" className="mb-4" />
+        <Input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Projekt oder Firma suchen…"
+          className="mb-5 h-10"
+        />
 
         {loading ? (
-          <div className="flex flex-col gap-2">
-            {[1,2,3].map(i => <Skeleton key={i} className="h-10 rounded-xl" />)}
+          <div className="flex flex-col gap-3">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 rounded-lg" />)}
           </div>
         ) : Object.keys(grouped).length === 0 ? (
-          <p className="text-sm text-muted-foreground">Keine Projekte gefunden.</p>
+          <p className="text-sm text-muted-foreground py-4">Keine Projekte gefunden.</p>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-8">
             {Object.entries(grouped)
               .sort(([a], [b]) => a.localeCompare(b, 'de'))
               .map(([firma, ps]) => (
-                <Card key={firma}>
-                  <CardHeader className="py-2.5 px-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{firma}</p>
-                      <Badge variant="secondary" className="text-xs">{ps.length}</Badge>
-                    </div>
-                  </CardHeader>
-                  <Separator />
-                  <CardContent className="p-0">
-                    {ps.map((p, i) => (
-                      <div key={p.id}>
-                        <div className="px-4 py-3 flex items-center justify-between">
-                          <p className="text-sm">{p.name}</p>
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                        </div>
-                        {i < ps.length - 1 && <Separator />}
+                <div key={firma}>
+                  <p className="text-[10px] font-mono font-medium text-muted-foreground uppercase tracking-[0.15em] mb-3">
+                    {firma}
+                  </p>
+                  <div className="flex flex-col divide-y divide-border/60">
+                    {ps.map(p => (
+                      <div key={p.id} className="flex items-center justify-between py-3">
+                        <p className="text-sm">{p.name}</p>
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
                       </div>
                     ))}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               ))}
           </div>
         )}
-      </div>
-    </div>
+    </PageContainer>
   );
 }

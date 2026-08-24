@@ -106,6 +106,48 @@ export const trip = pgTable('trip', {
   }),
 ]);
 
+export const aiProvider = pgTable('ai_provider', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  name: text().notNull(),
+  baseUrl: text('base_url').notNull(),
+  apiKey: text('api_key').default('').notNull(),
+  model: text().notNull(),
+  enabled: boolean().default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).defaultNow(),
+});
+
+export const aiConversation = pgTable('ai_conversation', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  title: text().default('Neuer Chat').notNull(),
+  providerId: uuid('provider_id'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).defaultNow(),
+}, (table) => [
+  index('idx_ai_conversation_updated').using('btree', table.updatedAt.asc().nullsLast()),
+  foreignKey({
+    columns: [table.providerId],
+    foreignColumns: [aiProvider.id],
+    name: 'ai_conversation_provider_id_fkey',
+  }).onDelete('set null'),
+]);
+
+export const aiMessage = pgTable('ai_message', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  conversationId: uuid('conversation_id').notNull(),
+  role: text().notNull(),
+  content: text().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow(),
+}, (table) => [
+  index('idx_ai_message_conversation').using('btree', table.conversationId.asc().nullsLast().op('uuid_ops')),
+  foreignKey({
+    columns: [table.conversationId],
+    foreignColumns: [aiConversation.id],
+    name: 'ai_message_conversation_id_fkey',
+  }).onDelete('cascade'),
+  check('ai_message_role_check', sql`role = ANY (ARRAY['user'::text, 'assistant'::text, 'system'::text])`),
+]);
+
 // Relations
 export const companyRelations = relations(company, ({ many }) => ({
   projects: many(project),
@@ -133,4 +175,67 @@ export const taskRelations = relations(task, ({ one }) => ({
 
 export const tripRelations = relations(trip, ({ one }) => ({
   company: one(company, { fields: [trip.companyId], references: [company.id] }),
+}));
+
+export const aiProviderRelations = relations(aiProvider, ({ many }) => ({
+  conversations: many(aiConversation),
+}));
+
+export const aiConversationRelations = relations(aiConversation, ({ one, many }) => ({
+  provider: one(aiProvider, { fields: [aiConversation.providerId], references: [aiProvider.id] }),
+  messages: many(aiMessage),
+}));
+
+export const aiMessageRelations = relations(aiMessage, ({ one }) => ({
+  conversation: one(aiConversation, { fields: [aiMessage.conversationId], references: [aiConversation.id] }),
+}));
+
+export const studioJob = pgTable('studio_job', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  kind: text().notNull(),
+  prompt: text().notNull(),
+  seed: integer().notNull(),
+  variantCount: integer('variant_count').default(1).notNull(),
+  status: text().default('queued').notNull(),
+  estimatedCents: integer('estimated_cents').default(0).notNull(),
+  actualCents: integer('actual_cents').default(0).notNull(),
+  error: text(),
+  providerState: text('provider_state'),
+  parentJobId: uuid('parent_job_id'),
+  parentAssetId: uuid('parent_asset_id'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).defaultNow(),
+}, (table) => [
+  index('idx_studio_job_created').using('btree', table.createdAt.desc().nullsLast()),
+  index('idx_studio_job_status').using('btree', table.status.asc().nullsLast().op('text_ops')),
+  check('studio_job_kind_check', sql`kind = ANY (ARRAY['image'::text, 'video_draft'::text, 'video_final'::text])`),
+  check('studio_job_status_check', sql`status = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text])`),
+]);
+
+export const studioAsset = pgTable('studio_asset', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  jobId: uuid('job_id').notNull(),
+  variantIndex: integer('variant_index').default(0).notNull(),
+  seed: integer().notNull(),
+  media: text().notNull(),
+  storageKey: text('storage_key'),
+  originalUrl: text('original_url'),
+  mime: text(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow(),
+}, (table) => [
+  index('idx_studio_asset_job').using('btree', table.jobId.asc().nullsLast().op('uuid_ops')),
+  foreignKey({
+    columns: [table.jobId],
+    foreignColumns: [studioJob.id],
+    name: 'studio_asset_job_id_fkey',
+  }).onDelete('cascade'),
+  check('studio_asset_media_check', sql`media = ANY (ARRAY['image'::text, 'video'::text])`),
+]);
+
+export const studioJobRelations = relations(studioJob, ({ many }) => ({
+  assets: many(studioAsset),
+}));
+
+export const studioAssetRelations = relations(studioAsset, ({ one }) => ({
+  job: one(studioJob, { fields: [studioAsset.jobId], references: [studioJob.id] }),
 }));

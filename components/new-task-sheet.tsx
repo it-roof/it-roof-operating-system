@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 type Company = { id: string; name: string };
 type Project = { id: string; name: string };
@@ -76,37 +76,51 @@ export default function NewTaskSheet({ open, defaultDate, onClose, onCreated }: 
     <Drawer open={open} onOpenChange={v => !v && onClose()}>
       <DrawerContent>
         <div className="mx-auto w-full max-w-xl px-5 pb-8">
-          <DrawerHeader className="px-0 pt-2 pb-4">
-            <DrawerTitle>Neue Aufgabe</DrawerTitle>
+          <DrawerHeader className="px-0 pt-4 pb-5">
+            <DrawerTitle className="text-lg">Neue Aufgabe</DrawerTitle>
           </DrawerHeader>
 
-          <form onSubmit={submit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="task-title">Titel</Label>
-              <Input ref={titleRef} id="task-title" value={title}
+          <form onSubmit={submit} className="flex flex-col gap-5">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="task-title" className="text-sm font-medium">Titel</Label>
+              <Input
+                ref={titleRef}
+                id="task-title"
+                value={title}
                 onChange={e => setTitle(e.target.value)}
-                placeholder="Was muss gemacht werden?" required />
+                placeholder="Was muss gemacht werden?"
+                className="h-10"
+                required
+              />
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <Label>Priorität</Label>
+            <div className="flex flex-col gap-2">
+              <Label className="text-sm font-medium">Priorität</Label>
               <div className="flex gap-2">
                 {PRIO.map(p => (
-                  <button key={p.value} type="button" onClick={() => setPrio(p.value)} className="flex-1">
-                    <Badge
-                      variant={prio === p.value ? 'default' : 'outline'}
-                      className="w-full justify-center py-1.5 cursor-pointer">
-                      {p.label}
-                    </Badge>
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setPrio(p.value)}
+                    className={cn(
+                      'flex-1 py-2 rounded-lg text-sm font-medium transition-all duration-150 border',
+                      prio === p.value
+                        ? p.value === 'high'   ? 'bg-danger text-danger-foreground border-danger'
+                        : p.value === 'medium' ? 'bg-warning text-warning-foreground border-warning'
+                        :                        'bg-muted text-foreground border-border'
+                        : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+                    )}
+                  >
+                    {p.label}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="task-firma">Firma</Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="task-firma" className="text-sm font-medium">Firma</Label>
               <Select value={companyId} onValueChange={setCompanyId}>
-                <SelectTrigger id="task-firma" className="w-full">
+                <SelectTrigger id="task-firma" className="w-full h-10">
                   <SelectValue placeholder="Firma wählen…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -118,10 +132,10 @@ export default function NewTaskSheet({ open, defaultDate, onClose, onCreated }: 
             </div>
 
             {projects.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="task-projekt">Projekt</Label>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="task-projekt" className="text-sm font-medium">Projekt</Label>
                 <Select value={projectId} onValueChange={setProjectId}>
-                  <SelectTrigger id="task-projekt" className="w-full">
+                  <SelectTrigger id="task-projekt" className="w-full h-10">
                     <SelectValue placeholder="Projekt wählen…" />
                   </SelectTrigger>
                   <SelectContent>
@@ -134,23 +148,23 @@ export default function NewTaskSheet({ open, defaultDate, onClose, onCreated }: 
             )}
 
             <div className="flex gap-3">
-              <div className="flex flex-col gap-1.5 flex-1">
-                <Label htmlFor="task-date">Datum</Label>
+              <div className="flex flex-col gap-2 flex-1">
+                <Label htmlFor="task-date" className="text-sm font-medium">Datum</Label>
                 <Input id="task-date" type="date" value={plannedDate}
-                  onChange={e => setPlannedDate(e.target.value)} />
+                  onChange={e => setPlannedDate(e.target.value)} className="h-10" />
               </div>
-              <div className="flex flex-col gap-1.5 w-24">
-                <Label htmlFor="task-min">Minuten</Label>
+              <div className="flex flex-col gap-2 w-28">
+                <Label htmlFor="task-min" className="text-sm font-medium">Minuten</Label>
                 <Input id="task-min" type="number" value={zeitMin}
-                  onChange={e => setZeitMin(e.target.value)} placeholder="z.B. 60" />
+                  onChange={e => setZeitMin(e.target.value)} placeholder="60" className="h-10" />
               </div>
             </div>
 
             <div className="flex gap-2 pt-1">
-              <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+              <Button type="button" variant="outline" className="flex-1 h-11" onClick={onClose}>
                 Abbrechen
               </Button>
-              <Button type="submit" className="flex-1"
+              <Button type="submit" variant="success-solid" className="flex-1 h-11"
                 disabled={saving || !title.trim() || !projectId}>
                 {saving ? 'Speichern…' : 'Anlegen'}
               </Button>

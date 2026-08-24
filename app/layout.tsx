@@ -1,49 +1,27 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Navbar from "@/components/navbar";
 import { TimerProvider } from "@/lib/timer-context";
-import { TimerBanner } from "@/components/timer-banner";
+import { ThemeProvider } from "@/components/theme-provider";
+import { AppShell } from "@/components/app-shell";
 
-const garet = localFont({
-  src: [
-    {
-      path: "./fonts/Garet-Book.woff2",
-      weight: "400",
-      style: "normal",
-    },
-    {
-      path: "./fonts/Garet-Bold.woff2",
-      weight: "700",
-      style: "normal",
-    },
-  ],
-  variable: "--font-garet",
+const geistSans = Geist({
+  subsets: ["latin"],
+  variable: "--font-geist-sans",
 });
 
-const gotham = localFont({
-  src: [
-    {
-      path: "./fonts/Gotham-Book.woff2",
-      weight: "400",
-      style: "normal",
-    },
-    {
-      path: "./fonts/Gotham-Bold.woff2",
-      weight: "700",
-      style: "normal",
-    },
-  ],
-  variable: "--font-gotham",
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
 });
 
 export const metadata: Metadata = {
-  title: 'Cherry OS',
+  title: 'Pinguine OS',
   description: 'IT ROOF Operating System',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'Cherry OS',
+    statusBarStyle: 'default',
+    title: 'Pinguine OS',
   },
 };
 
@@ -53,13 +31,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="de" className={`${garet.variable} ${gotham.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-[#f7f6f2]">
-        <TimerProvider>
-          <TimerBanner />
-          {children}
-          <Navbar />
-        </TimerProvider>
+    <html lang="de" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
+      <body className={`${geistSans.className} min-h-full flex flex-col bg-background`}>
+        <ThemeProvider>
+          <TimerProvider>
+            <AppShell>
+              {children}
+            </AppShell>
+          </TimerProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

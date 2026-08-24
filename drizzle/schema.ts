@@ -64,7 +64,7 @@ export const trip = pgTable("trip", {
 export const contact = pgTable("contact", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	firstName: text("first_name").notNull(),
-	lastName: text("last_name").default(').notNull(),
+	lastName: text("last_name").default('').notNull(),
 	email: text(),
 	phone: text(),
 	notes: text(),

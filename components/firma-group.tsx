@@ -1,9 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDownIcon } from 'lucide-react';
 import { TaskRow } from '@/components/task-row';
 import { type Task, type SharedProps } from '@/lib/types';
@@ -17,24 +14,28 @@ export function FirmaGroup({ firma, tasks, ...rest }: { firma: string; tasks: Ta
   const hasHigh = tasks.some(t => t.prio === 'high');
 
   return (
-    <Card className="mb-2">
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/50 transition-colors">
-          <span className="text-sm font-semibold">{firma}</span>
-          <div className="flex items-center gap-2">
-            {hasHigh && <span className="w-1.5 h-1.5 rounded-full bg-foreground inline-block" />}
-            <Badge variant="secondary" className="text-xs">
-              {tasks.length}{total ? ` · ${fmtMin(total)}` : ''}
-            </Badge>
-            <ChevronDownIcon className={`size-4 text-muted-foreground transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
-          </div>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="border-t border-border">
-            {tasks.map(t => <TaskRow key={t.id} task={t} compact {...rest} />)}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-    </Card>
+    <div className="mb-5">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between py-2 text-left group"
+      >
+        <div className="flex items-center gap-2">
+          {hasHigh && <span className="w-1.5 h-1.5 rounded-full bg-foreground flex-shrink-0" />}
+          <span className="text-sm font-semibold tracking-tight">{firma}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono text-muted-foreground tracking-wide">
+            {tasks.length} AUFG{total ? ` · ${fmtMin(total)}` : ''}
+          </span>
+          <ChevronDownIcon className={`size-3.5 text-muted-foreground transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+
+      {open && (
+        <div className="flex flex-col divide-y divide-border/60 pl-1 border-l-2 border-border/40 ml-0.5">
+          {tasks.map(t => <TaskRow key={t.id} task={t} compact {...rest} />)}
+        </div>
+      )}
+    </div>
   );
 }

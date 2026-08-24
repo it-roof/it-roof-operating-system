@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/page-header';
+import { PageContainer } from '@/components/page-container';
 import { WeekStrip } from '@/components/week-strip';
 import { TaskSection } from '@/components/task-section';
 import { DoneAccordion } from '@/components/done-accordion';
@@ -52,12 +53,10 @@ export default function Home() {
   })();
 
   return (
-    <div className="min-h-screen bg-background text-foreground font-sans">
-      <div className="max-w-xl mx-auto px-4 pb-24">
+    <PageContainer>
         <PageHeader
           title="Heute"
           subtitle={now.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}
-          onRefresh={load}
           onAdd={() => { setSheetDate(today); setSheetOpen(true); }}
         />
 
@@ -94,7 +93,6 @@ export default function Home() {
             <DoneAccordion onReopen={reopenTask} />
           </>
         )}
-      </div>
 
       <NewTaskSheet
         open={sheetOpen}
@@ -102,6 +100,6 @@ export default function Home() {
         onClose={() => setSheetOpen(false)}
         onCreated={load}
       />
-    </div>
+    </PageContainer>
   );
 }

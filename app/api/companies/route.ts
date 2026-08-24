@@ -27,7 +27,7 @@ export async function GET() {
     .from(company)
     .leftJoin(companyContact, eq(companyContact.companyId, company.id))
     .leftJoin(contact, eq(contact.id, companyContact.contactId))
-    .where(eq(company.status, 'Aktiv'))
+    .where(eq(company.status, 'active'))
     .groupBy(company.id)
     .orderBy(company.name);
 

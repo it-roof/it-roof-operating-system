@@ -9,8 +9,20 @@ import {
 } from '@/components/ui/alert-dialog';
 import { PlayIcon, SquareIcon, CheckIcon, Trash2Icon } from 'lucide-react';
 import { type Task, type SharedProps } from '@/lib/types';
-import { PRIO_DE, fmtSec, fmtMin } from '@/lib/task-utils';
+import { fmtSec, fmtMin } from '@/lib/task-utils';
 import { useTimer } from '@/lib/timer-context';
+
+const PRIO_BAR: Record<string, string> = {
+  high: 'bg-danger',
+  medium: 'bg-warning',
+  low: 'bg-transparent',
+};
+
+const PRIO_ROW_BG: Record<string, string> = {
+  high: 'bg-danger/5',
+  medium: 'bg-warning/5',
+  low: '',
+};
 
 export function TaskRow({ task, compact, onDone, onSaveTitle, onDelete }:
   { task: Task; compact?: boolean } & SharedProps) {
@@ -43,73 +55,71 @@ export function TaskRow({ task, compact, onDone, onSaveTitle, onDelete }:
     };
   }
 
-  const prioCls = task.prio === 'high' ? 'text-foreground font-bold' : 'text-muted-foreground';
+  const subtitle = compact
+    ? (task.projekt && task.projekt !== 'Organisatorisches' ? task.projekt : null)
+    : [task.firma, task.projekt && task.projekt !== 'Organisatorisches' ? task.projekt : null]
+        .filter(Boolean).join(' · ') || null;
+
+  const rowBg = isRunning ? 'bg-primary/5' : (PRIO_ROW_BG[task.prio] ?? '');
 
   return (
-    <div className={`flex gap-3 items-start py-2.5 border-b border-border last:border-0 transition-colors
-      ${compact ? 'px-4' : 'px-0'}
-      ${isRunning ? 'bg-green-500/5' : ''}`}>
-      <span className={`text-[10px] w-12 flex-shrink-0 pt-0.5 ${prioCls}`}>
-        {PRIO_DE[task.prio] ?? task.prio}
-      </span>
+    <div className={`flex gap-0 items-stretch min-h-[52px] rounded-sm transition-colors ${rowBg}`}>
+      {/* Priority accent */}
+      <div className={`w-[3px] rounded-full flex-shrink-0 my-2.5 mr-3 ${PRIO_BAR[task.prio] ?? 'bg-transparent'}`} />
 
-      <div className="flex-1 min-w-0">
-        <div ref={titleRef} onClick={handleTitleClick}
-          className="text-sm leading-snug rounded cursor-text outline-none hover:bg-muted px-1 -mx-1 transition-colors focus:ring-2 focus:ring-ring"
-          suppressContentEditableWarning>
+      {/* Content */}
+      <div className="flex-1 min-w-0 flex flex-col justify-center py-3">
+        <div
+          ref={titleRef}
+          onClick={handleTitleClick}
+          className="text-sm leading-snug rounded cursor-text outline-none hover:bg-muted/80 px-1 -mx-1 transition-colors focus:ring-2 focus:ring-ring"
+          suppressContentEditableWarning
+        >
           {task.title}
         </div>
-        {!compact && task.firma && (
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {task.firma}{task.projekt && task.projekt !== 'Organisatorisches' ? ` · ${task.projekt}` : ''}
-          </p>
-        )}
-        {compact && task.projekt && task.projekt !== 'Organisatorisches' && (
-          <p className="text-xs text-muted-foreground mt-0.5">{task.projekt}</p>
+        {subtitle && (
+          <p className="text-[11px] font-mono text-muted-foreground mt-0.5 tracking-wide">{subtitle}</p>
         )}
       </div>
 
-      <div className="flex-shrink-0 flex items-center gap-1.5">
-        {/* Zeitanzeige + Timer-Button */}
+      {/* Actions */}
+      <div className="flex-shrink-0 flex items-center gap-0.5 pl-2">
         {isRunning ? (
           <>
-            <span className="text-sm font-bold tabular-nums text-green-600">{fmtSec(taskSecs)}</span>
-            <Button size="xs" variant="outline" onClick={stopTask}>
-              <SquareIcon /> Stop
-            </Button>
-          </>
-        ) : taskSecs > 0 ? (
-          <>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {taskSecs < 60 ? '< 1 Min' : fmtMin(Math.round(taskSecs / 60))}
+            <span className="text-xs font-mono font-bold tabular-nums mr-1.5">
+              {fmtSec(taskSecs)}
             </span>
-            <Button size="icon-xs" variant="outline" onClick={() => startTask(task.id, task.title)}
-              disabled={isBusy} title="Timer fortsetzen">
-              <PlayIcon />
+            <Button size="icon" variant="warning" onClick={stopTask} className="size-8">
+              <SquareIcon className="size-3.5" />
             </Button>
           </>
         ) : (
           <>
-            {task.zeit_minuten != null && (
-              <span className="text-xs text-muted-foreground">{fmtMin(task.zeit_minuten)}</span>
-            )}
-            <Button size="icon-xs" variant="outline" onClick={() => startTask(task.id, task.title)}
-              disabled={isBusy} title="Timer starten">
-              <PlayIcon />
+            {taskSecs > 0 ? (
+              <span className="text-[11px] font-mono text-muted-foreground tabular-nums mr-1">
+                {taskSecs < 60 ? '<1m' : fmtMin(Math.round(taskSecs / 60))}
+              </span>
+            ) : task.zeit_minuten != null ? (
+              <span className="text-[11px] font-mono text-muted-foreground mr-1">{fmtMin(task.zeit_minuten)}</span>
+            ) : null}
+            <Button size="icon" variant="ghost"
+              onClick={() => startTask(task.id, task.title)}
+              disabled={isBusy}
+              className="size-8 text-muted-foreground hover:text-foreground">
+              <PlayIcon className="size-3.5" />
             </Button>
           </>
         )}
 
-        {/* Erledigen — immer sichtbar */}
-        <Button size="icon-xs" onClick={() => onDone(task.id)} title="Erledigt">
-          <CheckIcon />
+        <Button size="icon" variant="success" onClick={() => onDone(task.id)} className="size-8">
+          <CheckIcon className="size-3.5" />
         </Button>
 
-        {/* Löschen */}
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button size="icon-xs" variant="destructive" title="Löschen">
-              <Trash2Icon />
+            <Button size="icon" variant="ghost"
+              className="size-8 text-muted-foreground/40 hover:text-danger hover:bg-danger/10">
+              <Trash2Icon className="size-3.5" />
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
@@ -121,7 +131,7 @@ export function TaskRow({ task, compact, onDone, onSaveTitle, onDelete }:
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-              <AlertDialogAction onClick={() => onDelete(task.id)}>Löschen</AlertDialogAction>
+              <AlertDialogAction variant="danger-solid" onClick={() => onDelete(task.id)}>Löschen</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

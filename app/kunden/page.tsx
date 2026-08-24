@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Button } from '@/components/ui/button';
 import { ChevronDownIcon, MailIcon, PhoneIcon } from 'lucide-react';
+import { PageContainer } from '@/components/page-container';
 
 type Contact = { id: string; first_name: string; last_name: string; email: string | null; phone: string | null };
 type Company = { id: string; name: string; city: string | null; contacts: Contact[] };
@@ -29,75 +29,81 @@ export default function KundenPage() {
   );
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-xl mx-auto px-4 pb-24">
-        <div className="pt-8 pb-4 flex items-end justify-between">
-          <div>
-            <h1 className="text-lg font-semibold">Kunden</h1>
-            <p className="text-xs text-muted-foreground">{companies.length} Firmen</p>
-          </div>
+    <PageContainer>
+        <div className="pt-8 pb-6 md:pt-6">
+          <h1 className="text-2xl font-bold tracking-tight">Kunden</h1>
+          <p className="text-xs font-mono text-muted-foreground mt-1 tracking-wide">{companies.length} Firmen</p>
         </div>
 
-        <Input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Firma oder Kontakt suchen…" className="mb-4" />
+        <Input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Firma oder Kontakt suchen…"
+          className="mb-5 h-10"
+        />
 
         {loading ? (
-          <div className="flex flex-col gap-2">
-            {[1,2,3].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}
+          <div className="flex flex-col gap-3">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 rounded-lg" />)}
           </div>
         ) : filtered.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Keine Firmen gefunden.</p>
+          <p className="text-sm text-muted-foreground py-4">Keine Firmen gefunden.</p>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col divide-y divide-border/60">
             {filtered.map(c => (
               <Collapsible key={c.id}>
-                <div className="bg-card border border-border rounded-xl overflow-hidden">
-                  <CollapsibleTrigger className="group w-full flex items-center justify-between px-4 py-3.5 text-left hover:bg-muted/50 transition-colors">
-                    <div>
-                      <p className="text-sm font-semibold">{c.name}</p>
-                      {c.city && <p className="text-xs text-muted-foreground mt-0.5">{c.city}</p>}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {c.contacts.length > 0 && (
-                        <Badge variant="secondary" className="text-xs">{c.contacts.length}</Badge>
-                      )}
-                      <ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                    </div>
-                  </CollapsibleTrigger>
+                <CollapsibleTrigger className="group w-full flex items-center justify-between py-4 text-left">
+                  <div>
+                    <p className="text-sm font-semibold tracking-tight">{c.name}</p>
+                    {c.city && (
+                      <p className="text-[11px] font-mono text-muted-foreground mt-0.5 tracking-wide">{c.city}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    {c.contacts.length > 0 && (
+                      <span className="text-[11px] font-mono">{c.contacts.length}</span>
+                    )}
+                    <ChevronDownIcon className="size-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                  </div>
+                </CollapsibleTrigger>
 
-                  <CollapsibleContent>
-                    <div className="border-t border-border px-4 py-3 flex flex-col gap-3">
-                      {c.contacts.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">Keine Ansprechpartner hinterlegt.</p>
-                      ) : c.contacts.map(ct => (
-                        <div key={ct.id} className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-medium">{ct.first_name} {ct.last_name}</p>
-                            {ct.email && <p className="text-xs text-muted-foreground mt-0.5">{ct.email}</p>}
-                            {ct.phone && <p className="text-xs text-muted-foreground">{ct.phone}</p>}
-                          </div>
-                          <div className="flex gap-1.5 flex-shrink-0">
-                            {ct.phone && (
-                              <Button variant="outline" size="icon-sm" asChild>
-                                <a href={`tel:${ct.phone}`}><PhoneIcon className="size-3.5" /></a>
-                              </Button>
-                            )}
-                            {ct.email && (
-                              <Button size="icon-sm" asChild>
-                                <a href={`mailto:${ct.email}`}><MailIcon className="size-3.5" /></a>
-                              </Button>
-                            )}
-                          </div>
+                <CollapsibleContent>
+                  <div className="pb-4 flex flex-col gap-4 pl-1">
+                    {c.contacts.length === 0 ? (
+                      <p className="text-xs font-mono text-muted-foreground tracking-wide">Keine Ansprechpartner</p>
+                    ) : c.contacts.map(ct => (
+                      <div key={ct.id} className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{ct.first_name} {ct.last_name}</p>
+                          {ct.email && (
+                            <p className="text-[11px] font-mono text-muted-foreground mt-0.5 truncate tracking-wide">
+                              {ct.email}
+                            </p>
+                          )}
+                          {ct.phone && (
+                            <p className="text-[11px] font-mono text-muted-foreground tracking-wide">{ct.phone}</p>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  </CollapsibleContent>
-                </div>
+                        <div className="flex gap-1.5 flex-shrink-0">
+                          {ct.phone && (
+                            <Button variant="outline" size="icon" className="size-8" asChild>
+                              <a href={`tel:${ct.phone}`}><PhoneIcon className="size-3.5" /></a>
+                            </Button>
+                          )}
+                          {ct.email && (
+                            <Button size="icon" className="size-8" asChild>
+                              <a href={`mailto:${ct.email}`}><MailIcon className="size-3.5" /></a>
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
               </Collapsible>
             ))}
           </div>
         )}
-      </div>
-    </div>
+    </PageContainer>
   );
 }
