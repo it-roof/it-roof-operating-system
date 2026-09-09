@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeadsDb } from '@/lib/leads/db';
-import { campaignLead, lead, campaign } from '@/lib/leads/schema';
+import { campaignLead, campaignStep, lead, campaign } from '@/lib/leads/schema';
 import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { pageMeta, pageOffset, parseLimit, parsePage } from '@/lib/leads/pagination';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
   const campaignId = req.nextUrl.searchParams.get('campaign_id');
   const leadId = req.nextUrl.searchParams.get('lead_id');
   const status = req.nextUrl.searchParams.get('status');
-  const page = parsePage(req.nextUrl.searchParams.get('page'));
-  const limit = parseLimit(req.nextUrl.searchParams.get('limit'));
+  const idsOnly = req.nextUrl.searchParams.get('ids_only') === '1';
   const db = getLeadsDb();
 
   const filters = [];
@@ -18,6 +17,24 @@ export async function GET(req: NextRequest) {
   if (leadId) filters.push(eq(campaignLead.leadId, leadId));
   if (status) filters.push(eq(campaignLead.status, status));
   const where = filters.length ? and(...filters) : undefined;
+
+  if (idsOnly) {
+    if (!campaignId) {
+      return NextResponse.json({ error: 'campaign_id erforderlich' }, { status: 400 });
+    }
+    const rows = await db
+      .select({ id: campaignLead.id, lead_id: campaignLead.leadId })
+      .from(campaignLead)
+      .where(eq(campaignLead.campaignId, campaignId));
+    return NextResponse.json({
+      lead_ids: rows.map((r) => r.lead_id),
+      assignments: rows,
+      total: rows.length,
+    });
+  }
+
+  const page = parsePage(req.nextUrl.searchParams.get('page'));
+  const limit = parseLimit(req.nextUrl.searchParams.get('limit'));
 
   const [countRow] = await db
     .select({ total: sql<number>`count(*)::int` })
@@ -57,15 +74,27 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const campaignId = requireString(body.campaign_id ?? body.campaignId, 'campaign_id');
     const leadId = requireString(body.lead_id ?? body.leadId, 'lead_id');
-    const status = (body.status ?? 'pending').trim() || 'pending';
+    const status = (body.status ?? 'active').trim() || 'active';
 
     const db = getLeadsDb();
+
+    let currentStepId = emptyToNull(body.current_step_id ?? body.currentStepId);
+    if (!currentStepId) {
+      const [firstStep] = await db
+        .select({ id: campaignStep.id })
+        .from(campaignStep)
+        .where(eq(campaignStep.campaignId, campaignId))
+        .orderBy(asc(campaignStep.stepOrder))
+        .limit(1);
+      currentStepId = firstStep?.id ?? null;
+    }
+
     const [row] = await db
       .insert(campaignLead)
       .values({
         campaignId,
         leadId,
-        currentStepId: emptyToNull(body.current_step_id ?? body.currentStepId),
+        currentStepId,
         status,
         lastActionAt: emptyToNull(body.last_action_at ?? body.lastActionAt),
         createdAt: nowIso(),

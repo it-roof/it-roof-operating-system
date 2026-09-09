@@ -1,202 +1,1098 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { PencilIcon, PlusIcon } from 'lucide-react';
-import { ConfirmDelete } from '@/components/leads/confirm-delete';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from '@/components/ui/command';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  CheckIcon,
+  ChevronsUpDownIcon,
+  MinusIcon,
+  PlusIcon,
+  SearchIcon,
+} from 'lucide-react';
 import { ListPagination } from '@/components/leads/list-pagination';
+import { PageHeader } from '@/components/page-header';
+import { campaignFlowLabel } from '@/lib/leads/campaign-steps';
+import { appendListParams } from '@/lib/leads/filter-params';
 import { PAGE_SIZE, type PageSize } from '@/lib/leads/pagination';
+import { cn } from '@/lib/utils';
 
-type Row = {
+type Campaign = {
   id: string;
-  campaign_id: string;
-  lead_id: string;
-  current_step_id: string | null;
-  status: string;
-  campaign_name: string | null;
-  company_name: string | null;
+  name: string;
+  description: string | null;
+  step_count: number;
+  lead_count: number;
+  active_count: number;
+  done_count: number;
+  flow_label: string;
 };
 
-type Campaign = { id: string; name: string };
+type Lead = {
+  id: string;
+  company_name: string;
+  city: string | null;
+  industry: string | null;
+  domain: string | null;
+  status: string;
+};
 
-const EMPTY = { campaign_id: '', lead_id: '', current_step_id: '', status: 'pending' };
+type Facet = { value: string; n: number };
+type SearchTag = { id: string; name: string };
+type SearchOption = { id: string; query: string; n: number; tags: SearchTag[] };
+
+function multiLabel(selected: string[], empty: string) {
+  if (selected.length === 0) return empty;
+  if (selected.length === 1) return selected[0]!;
+  return `${selected[0]} +${selected.length - 1}`;
+}
+
+function toggleValue(list: string[], value: string) {
+  return list.includes(value)
+    ? list.filter((v) => v !== value)
+    : [...list, value];
+}
 
 export function CampaignLeadsTab() {
-  const [rows, setRows] = useState<Row[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [campaignFilter, setCampaignFilter] = useState('all');
+  const [campaignsLoading, setCampaignsLoading] = useState(true);
+  const [campaignId, setCampaignId] = useState<string | null>(null);
+
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [assignedIds, setAssignedIds] = useState<Set<string>>(new Set());
+  const [meta, setMeta] = useState<{
+    total: number;
+    page: number;
+    pages: number;
+    limit: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [selectedCities, setSelectedCities] = useState<string[]>([]);
+  const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
+  const [selectedSearches, setSelectedSearches] = useState<string[]>([]);
+  const [cities, setCities] = useState<Facet[]>([]);
+  const [industries, setIndustries] = useState<Facet[]>([]);
+  const [searches, setSearches] = useState<SearchOption[]>([]);
+  const [searchLabels, setSearchLabels] = useState<Record<string, string>>({});
+  const [cityOpen, setCityOpen] = useState(false);
+  const [industryOpen, setIndustryOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchDialogTag, setSearchDialogTag] = useState<'all' | 'none' | string>('all');
+  const [searchDialogQ, setSearchDialogQ] = useState('');
+  const [hideAssigned, setHideAssigned] = useState(true);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState<PageSize>(PAGE_SIZE);
-  const [paging, setPaging] = useState({ page: 1, pages: 1, total: 0, limit: PAGE_SIZE });
-  const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(EMPTY);
-  const [saving, setSaving] = useState(false);
 
-  async function load() {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [assigning, setAssigning] = useState(false);
+  const [matchAvailable, setMatchAvailable] = useState(0);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const selectedCampaign = campaigns.find((c) => c.id === campaignId) ?? null;
+  const hasFilter =
+    selectedCities.length > 0
+    || selectedIndustries.length > 0
+    || selectedSearches.length > 0
+    || !!debounced;
+
+  const citiesKey = selectedCities.join('\0');
+  const industriesKey = selectedIndustries.join('\0');
+  const searchesKey = selectedSearches.join('\0');
+
+  const cityOptions = useMemo(() => {
+    const map = new Map(cities.map((c) => [c.value, c]));
+    for (const value of selectedCities) {
+      if (!map.has(value)) map.set(value, { value, n: 0 });
+    }
+    return [...map.values()];
+  }, [cities, citiesKey]);
+
+  const industryOptions = useMemo(() => {
+    const map = new Map(industries.map((i) => [i.value, i]));
+    for (const value of selectedIndustries) {
+      if (!map.has(value)) map.set(value, { value, n: 0 });
+    }
+    return [...map.values()];
+  }, [industries, industriesKey]);
+
+  const searchOptions = useMemo(() => {
+    const map = new Map(searches.map((s) => [s.id, s]));
+    for (const id of selectedSearches) {
+      if (!map.has(id)) {
+        map.set(id, {
+          id,
+          query: searchLabels[id] ?? id.slice(0, 8),
+          n: 0,
+          tags: [],
+        });
+      }
+    }
+    return [...map.values()];
+  }, [searches, searchesKey, searchLabels]);
+
+  const searchGroups = useMemo(() => {
+    const byTag = new Map<string, { id: string; name: string; items: SearchOption[] }>();
+    const untagged: SearchOption[] = [];
+
+    for (const s of searchOptions) {
+      if (!s.tags.length) {
+        untagged.push(s);
+        continue;
+      }
+      for (const t of s.tags) {
+        let group = byTag.get(t.id);
+        if (!group) {
+          group = { id: t.id, name: t.name, items: [] };
+          byTag.set(t.id, group);
+        }
+        group.items.push(s);
+      }
+    }
+
+    const tagged = [...byTag.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, 'de'),
+    );
+    return { tagged, untagged };
+  }, [searchOptions]);
+
+  const dialogSearchList = useMemo(() => {
+    let list: SearchOption[];
+    if (searchDialogTag === 'all') list = searchOptions;
+    else if (searchDialogTag === 'none') list = searchGroups.untagged;
+    else {
+      list = searchGroups.tagged.find((g) => g.id === searchDialogTag)?.items ?? [];
+    }
+    const q = searchDialogQ.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (s) =>
+          s.query.toLowerCase().includes(q)
+          || s.tags.some((t) => t.name.toLowerCase().includes(q)),
+      );
+    }
+    return [...list].sort((a, b) => a.query.localeCompare(b.query, 'de'));
+  }, [searchOptions, searchGroups, searchDialogTag, searchDialogQ]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(search.trim()), 250);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCampaigns() {
+      setCampaignsLoading(true);
+      try {
+        const [campsData, stepsData] = await Promise.all([
+          fetch('/api/campaigns').then((r) => r.json()),
+          fetch('/api/campaign-steps').then((r) => r.json()),
+        ]);
+        if (cancelled) return;
+
+        const stepsByCampaign = new Map<string, string[]>();
+        for (const s of stepsData.steps ?? []) {
+          const list = stepsByCampaign.get(s.campaignId) ?? [];
+          list.push(s.type);
+          stepsByCampaign.set(s.campaignId, list);
+        }
+        setCampaigns(
+          (campsData.campaigns ?? []).map((c: {
+            id: string;
+            name: string;
+            description: string | null;
+            step_count?: number;
+            lead_count?: number;
+            active_count?: number;
+            done_count?: number;
+          }) => ({
+            id: c.id,
+            name: c.name,
+            description: c.description,
+            step_count: c.step_count ?? 0,
+            lead_count: c.lead_count ?? 0,
+            active_count: c.active_count ?? 0,
+            done_count: c.done_count ?? 0,
+            flow_label: campaignFlowLabel(stepsByCampaign.get(c.id) ?? []),
+          })),
+        );
+      } finally {
+        if (!cancelled) setCampaignsLoading(false);
+      }
+    }
+
+    if (!campaignId) void loadCampaigns();
+    return () => { cancelled = true; };
+  }, [campaignId]);
+
+  async function loadAssigned(id: string) {
+    const res = await fetch(`/api/campaign-leads?campaign_id=${id}&ids_only=1`);
+    const data = await res.json();
+    setAssignedIds(new Set(data.lead_ids ?? []));
+  }
+
+  async function loadLeads(signal?: AbortSignal) {
+    if (!campaignId) return;
     setLoading(true);
     const params = new URLSearchParams({
       limit: String(limit),
       page: String(page),
     });
-    if (campaignFilter !== 'all') params.set('campaign_id', campaignFilter);
-    const [clRes, campsRes] = await Promise.all([
-      fetch(`/api/campaign-leads?${params}`),
-      fetch('/api/campaigns'),
-    ]);
-    const clData = await clRes.json();
-    const campsData = await campsRes.json();
-    setRows(clData.campaign_leads ?? []);
-    if (clData.meta) {
-      setPaging({
-        page: clData.meta.page ?? 1,
-        pages: clData.meta.pages ?? 1,
-        total: clData.meta.total ?? 0,
-        limit: clData.meta.limit ?? PAGE_SIZE,
+    if (debounced) params.set('q', debounced);
+    appendListParams(params, 'city', selectedCities);
+    appendListParams(params, 'industry', selectedIndustries);
+    appendListParams(params, 'search_query_id', selectedSearches);
+    if (hideAssigned) params.set('exclude_campaign_id', campaignId);
+
+    const res = await fetch(`/api/leads?${params}`, { signal });
+    const data = await res.json();
+    setLeads(data.leads ?? []);
+    setMeta(data.meta ? {
+      total: data.meta.total ?? 0,
+      page: data.meta.page ?? 1,
+      pages: data.meta.pages ?? 1,
+      limit: data.meta.limit ?? PAGE_SIZE,
+    } : null);
+    if (data.meta?.cities) {
+      setCities(data.meta.cities.map((c: { city: string; n: number }) => ({
+        value: c.city,
+        n: c.n,
+      })));
+    }
+    if (data.meta?.industries) {
+      setIndustries(data.meta.industries.map((i: { industry: string; n: number }) => ({
+        value: i.industry,
+        n: i.n,
+      })));
+    }
+    if (data.meta?.searches) {
+      const nextSearches = data.meta.searches.map((s: {
+        id: string;
+        query: string;
+        lead_count: number;
+        tags?: SearchTag[];
+      }) => ({
+        id: s.id,
+        query: s.query,
+        n: s.lead_count,
+        tags: s.tags ?? [],
+      }));
+      setSearches(nextSearches);
+      setSearchLabels((prev) => {
+        const next = { ...prev };
+        for (const s of nextSearches) next[s.id] = s.query;
+        return next;
       });
     }
-    setCampaigns((campsData.campaigns ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })));
     setLoading(false);
   }
 
-  useEffect(() => { setPage(1); }, [campaignFilter]);
-  useEffect(() => { load(); }, [campaignFilter, page, limit]);
+  useEffect(() => {
+    if (!campaignId) return;
+    setSelected(new Set());
+    setPage(1);
+    setSearch('');
+    setDebounced('');
+    setSelectedCities([]);
+    setSelectedIndustries([]);
+    setSelectedSearches([]);
+    setFlash(null);
+    loadAssigned(campaignId);
+  }, [campaignId]);
 
-  function openCreate() {
-    setEditingId(null);
-    setForm({
-      ...EMPTY,
-      campaign_id: campaignFilter !== 'all' ? campaignFilter : (campaigns[0]?.id ?? ''),
+  useEffect(() => {
+    setPage(1);
+  }, [debounced, citiesKey, industriesKey, searchesKey, hideAssigned]);
+
+  useEffect(() => {
+    if (!campaignId) return;
+    const ctrl = new AbortController();
+    loadLeads(ctrl.signal).catch((e) => {
+      if (e.name !== 'AbortError') setLoading(false);
     });
-    setOpen(true);
+    return () => ctrl.abort();
+  }, [campaignId, debounced, citiesKey, industriesKey, searchesKey, page, limit, hideAssigned]);
+
+  useEffect(() => {
+    if (!campaignId || !hasFilter) {
+      setMatchAvailable(0);
+      return;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams({ campaign_id: campaignId });
+    appendListParams(params, 'city', selectedCities);
+    appendListParams(params, 'industry', selectedIndustries);
+    appendListParams(params, 'search_query_id', selectedSearches);
+    if (debounced) params.set('q', debounced);
+    fetch(`/api/campaign-leads/bulk?${params}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setMatchAvailable(data.available ?? 0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignId, citiesKey, industriesKey, searchesKey, debounced, hasFilter, assignedIds]);
+
+  const visibleLeads = leads;
+
+  const selectedNewIds = [...selected].filter((id) => !assignedIds.has(id));
+  const selectedAssignedIds = [...selected].filter((id) => assignedIds.has(id));
+
+  const allPageSelected =
+    visibleLeads.length > 0
+    && visibleLeads.every((l) => selected.has(l.id));
+
+  function toggleAllPage() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        for (const l of visibleLeads) next.delete(l.id);
+      } else {
+        for (const l of visibleLeads) next.add(l.id);
+      }
+      return next;
+    });
   }
 
-  function openEdit(r: Row) {
-    setEditingId(r.id);
-    setForm({
-      campaign_id: r.campaign_id,
-      lead_id: r.lead_id,
-      current_step_id: r.current_step_id ?? '',
-      status: r.status,
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-    setOpen(true);
   }
 
-  async function save() {
-    if (!form.campaign_id || !form.lead_id) return;
-    setSaving(true);
-    await fetch(editingId ? `/api/campaign-leads/${editingId}` : '/api/campaign-leads', {
-      method: editingId ? 'PATCH' : 'POST',
+  async function assignIds(ids: string[]) {
+    const toAssign = ids.filter((id) => !assignedIds.has(id));
+    if (!campaignId || toAssign.length === 0 || assigning) return;
+    setAssigning(true);
+    setFlash(null);
+    const res = await fetch('/api/campaign-leads/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaign_id: campaignId, lead_ids: toAssign }),
+    });
+    const data = await res.json();
+    setAssigning(false);
+    if (!res.ok) {
+      setFlash(data.error ?? 'Zuordnung fehlgeschlagen');
+      return;
+    }
+    setFlash(
+      data.inserted === 0
+        ? 'Keine neuen Zuordnungen.'
+        : `${data.inserted} Lead${data.inserted !== 1 ? 's' : ''} zugeordnet`,
+    );
+    setSelected(new Set());
+    await loadAssigned(campaignId);
+    await loadLeads();
+  }
+
+  async function unassignIds(ids: string[]) {
+    const toRemove = ids.filter((id) => assignedIds.has(id));
+    if (!campaignId || toRemove.length === 0 || assigning) return;
+    setAssigning(true);
+    setFlash(null);
+    const res = await fetch('/api/campaign-leads/bulk', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaign_id: campaignId, lead_ids: toRemove }),
+    });
+    const data = await res.json();
+    setAssigning(false);
+    if (!res.ok) {
+      setFlash(data.error ?? 'Aufheben fehlgeschlagen');
+      return;
+    }
+    setFlash(
+      data.removed === 0
+        ? 'Keine Zuordnung entfernt.'
+        : `${data.removed} Zuordnung${data.removed !== 1 ? 'en' : ''} aufgehoben`,
+    );
+    setSelected(new Set());
+    await loadAssigned(campaignId);
+    await loadLeads();
+  }
+
+  async function assignMatching() {
+    if (!campaignId || !hasFilter || assigning) return;
+    setAssigning(true);
+    setFlash(null);
+    const res = await fetch('/api/campaign-leads/bulk', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        campaign_id: form.campaign_id,
-        lead_id: form.lead_id,
-        current_step_id: form.current_step_id || null,
-        status: form.status,
+        campaign_id: campaignId,
+        cities: selectedCities.length ? selectedCities : undefined,
+        industries: selectedIndustries.length ? selectedIndustries : undefined,
+        search_query_ids: selectedSearches.length ? selectedSearches : undefined,
+        q: debounced || undefined,
       }),
     });
-    setSaving(false);
-    setOpen(false);
-    await load();
+    const data = await res.json();
+    setAssigning(false);
+    if (!res.ok) {
+      setFlash(data.error ?? 'Zuordnung fehlgeschlagen');
+      return;
+    }
+    setFlash(
+      data.inserted === 0
+        ? 'Keine neuen Zuordnungen.'
+        : `${data.inserted} Lead${data.inserted !== 1 ? 's' : ''} zugeordnet`,
+    );
+    setSelected(new Set());
+    await loadAssigned(campaignId);
+    await loadLeads();
   }
 
-  async function remove(id: string) {
-    await fetch(`/api/campaign-leads/${id}`, { method: 'DELETE' });
-    await load();
+  /* —— Schritt 1: Kampagne —— */
+  if (!campaignId) {
+    return (
+      <div>
+        <PageHeader
+          title="Zuordnungen"
+          subtitle="Kampagne wählen"
+        />
+
+        {campaignsLoading ? (
+          <div className="grid grid-cols-3 gap-3">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="aspect-[5/3] w-full rounded-xl" />
+            ))}
+          </div>
+        ) : campaigns.length === 0 ? (
+          <p className="py-8 text-sm text-muted-foreground">
+            Noch keine Kampagnen. Lege zuerst eine unter Kampagnen an.
+          </p>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {campaigns.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setCampaignId(c.id)}
+                className="flex aspect-[5/3] flex-col justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 px-5 py-5 text-left transition-colors hover:border-border hover:bg-muted/40 md:px-6 md:py-6"
+              >
+                <div className="min-w-0 space-y-1.5">
+                  <span className="line-clamp-2 text-lg font-semibold tracking-tight text-balance md:text-xl">
+                    {c.name}
+                  </span>
+                  <span className="line-clamp-2 font-mono text-[12px] tracking-wide text-muted-foreground">
+                    {c.flow_label}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] tracking-wide text-muted-foreground">
+                  <span>
+                    <span className="tabular-nums text-foreground">{c.lead_count}</span>
+                    {' '}zugeordnet
+                  </span>
+                  <span>
+                    <span className="tabular-nums text-foreground">{c.active_count}</span>
+                    {' '}offen
+                  </span>
+                  <span>
+                    <span className="tabular-nums text-foreground">{c.done_count}</span>
+                    {' '}fertig
+                  </span>
+                  <span>
+                    <span className="tabular-nums text-foreground">{c.step_count}</span>
+                    {' '}Schritt{c.step_count !== 1 ? 'e' : ''}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   }
+
+  /* —— Schritt 2: Leads —— */
+  const allDialogVisibleSelected =
+    dialogSearchList.length > 0
+    && dialogSearchList.every((s) => selectedSearches.includes(s.id));
+  const dialogSelectAllLabel =
+    searchDialogTag === 'all'
+      ? 'Alle sichtbaren'
+      : searchDialogTag === 'none'
+        ? 'Alle ohne Tags'
+        : `Alle von „${searchGroups.tagged.find((g) => g.id === searchDialogTag)?.name ?? 'Tag'}“`;
 
   return (
-    <div>
-      <div className="flex gap-2 mb-4">
-        <Select value={campaignFilter} onValueChange={setCampaignFilter}>
-          <SelectTrigger className="h-10 flex-1"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Alle Kampagnen</SelectItem>
-            {campaigns.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Button size="icon" className="size-10 rounded-full" onClick={openCreate}><PlusIcon className="size-4" /></Button>
-      </div>
-
-      {loading ? (
-        <div className="flex flex-col gap-3">{[1, 2].map((i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
-      ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-4">Keine Zuordnungen.</p>
-      ) : (
-        <div className="flex flex-col divide-y divide-border/60">
-          {rows.map((r) => (
-            <div key={r.id} className="flex items-center gap-2 py-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{r.company_name ?? r.lead_id.slice(0, 8)}</p>
-                <p className="text-[11px] font-mono text-muted-foreground truncate">
-                  {r.campaign_name ?? r.campaign_id.slice(0, 8)} · {r.status}
-                </p>
-              </div>
-              <Button size="icon" variant="ghost" className="size-8" onClick={() => openEdit(r)}>
-                <PencilIcon className="size-3.5" />
-              </Button>
-              <ConfirmDelete label="Zuordnung löschen?" onConfirm={() => remove(r.id)} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      <ListPagination
-        page={paging.page}
-        pages={paging.pages}
-        total={paging.total}
-        limit={paging.limit}
-        onPageChange={setPage}
-        onLimitChange={(next) => {
-          setLimit(next);
-          setPage(1);
-        }}
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title={selectedCampaign?.name ?? 'Kampagne'}
+        subtitle={`${assignedIds.size} bereits zugeordnet`}
+        onBack={() => setCampaignId(null)}
+        actions={(
+          <>
+            <Button
+              variant="outline"
+              className="h-10 gap-1.5"
+              disabled={assigning || selectedAssignedIds.length === 0}
+              onClick={() => unassignIds(selectedAssignedIds)}
+            >
+              <MinusIcon className="size-3.5" />
+              {selectedAssignedIds.length > 0
+                ? `Aufheben (${selectedAssignedIds.length})`
+                : 'Aufheben'}
+            </Button>
+            <Button
+              variant="outline"
+              className="h-10 gap-1.5"
+              disabled={assigning || !hasFilter || matchAvailable === 0}
+              onClick={assignMatching}
+            >
+              <PlusIcon className="size-3.5" />
+              {hasFilter && matchAvailable > 0
+                ? `Alle Treffer (${matchAvailable})`
+                : 'Alle Treffer'}
+            </Button>
+            <Button
+              variant="success-solid"
+              className="h-10 gap-1.5"
+              disabled={assigning || selectedNewIds.length === 0}
+              onClick={() => assignIds(selectedNewIds)}
+            >
+              <PlusIcon className="size-3.5" />
+              {selectedNewIds.length > 0
+                ? `Zuordnen (${selectedNewIds.length})`
+                : 'Zuordnen'}
+            </Button>
+          </>
+        )}
       />
 
-      <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerContent>
-          <div className="mx-auto w-full max-w-xl px-5 pb-8">
-            <DrawerHeader className="px-0 pt-4 pb-5">
-              <DrawerTitle>{editingId ? 'Zuordnung bearbeiten' : 'Lead zu Kampagne'}</DrawerTitle>
-            </DrawerHeader>
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label>Kampagne</Label>
-                <Select value={form.campaign_id} onValueChange={(v) => setForm({ ...form, campaign_id: v })}>
-                  <SelectTrigger className="h-10 w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {campaigns.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label>Lead-ID</Label>
-                <Input value={form.lead_id} onChange={(e) => setForm({ ...form, lead_id: e.target.value })} className="h-10 font-mono text-xs" />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label>Current Step ID (optional)</Label>
-                <Input value={form.current_step_id} onChange={(e) => setForm({ ...form, current_step_id: e.target.value })} className="h-10 font-mono text-xs" />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label>Status</Label>
-                <Input value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="h-10" />
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1 h-11" onClick={() => setOpen(false)}>Abbrechen</Button>
-                <Button variant="success-solid" className="flex-1 h-11" disabled={saving || !form.campaign_id || !form.lead_id} onClick={save}>
-                  {saving ? 'Speichern…' : 'Speichern'}
-                </Button>
-              </div>
-            </div>
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
+          <div className="relative min-w-[180px] flex-1">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Firma suchen…"
+              className="h-10 pl-9"
+            />
           </div>
-        </DrawerContent>
-      </Drawer>
+
+          <Popover open={cityOpen} onOpenChange={setCityOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                className={cn(
+                  'h-10 w-[200px] shrink-0 justify-between font-normal',
+                  selectedCities.length > 0 && 'border-foreground/30',
+                )}
+              >
+                <span className="truncate">
+                  {multiLabel(
+                    selectedCities,
+                    `Stadt${cities.length ? ` (${cities.length})` : ''}`,
+                  )}
+                </span>
+                <ChevronsUpDownIcon className="ml-2 size-3.5 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[280px] p-0" align="start">
+              <Command className="h-auto max-h-80">
+                <CommandInput placeholder="Stadt suchen…" />
+                <CommandList className="max-h-64">
+                  <CommandEmpty>Keine Stadt für diesen Filter.</CommandEmpty>
+                  <CommandGroup>
+                    <CommandItem
+                      value="Auswahl leeren"
+                      onSelect={() => setSelectedCities([])}
+                    >
+                      Auswahl leeren
+                    </CommandItem>
+                    {cityOptions.map((c) => {
+                      const checked = selectedCities.includes(c.value);
+                      return (
+                        <CommandItem
+                          key={c.value}
+                          value={c.value}
+                          data-checked={checked || undefined}
+                          onSelect={() => setSelectedCities((prev) => toggleValue(prev, c.value))}
+                        >
+                          <CheckIcon
+                            className={cn(
+                              'size-3.5 shrink-0',
+                              checked ? 'opacity-100' : 'opacity-0',
+                            )}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{c.value}</span>
+                          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                            {c.n}
+                          </span>
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+
+          <Popover open={industryOpen} onOpenChange={setIndustryOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                className={cn(
+                  'h-10 w-[220px] shrink-0 justify-between font-normal',
+                  selectedIndustries.length > 0 && 'border-foreground/30',
+                )}
+              >
+                <span className="truncate">
+                  {multiLabel(
+                    selectedIndustries,
+                    `Branche${industries.length ? ` (${industries.length})` : ''}`,
+                  )}
+                </span>
+                <ChevronsUpDownIcon className="ml-2 size-3.5 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[300px] p-0" align="start">
+              <Command className="h-auto max-h-80">
+                <CommandInput placeholder="Branche suchen…" />
+                <CommandList className="max-h-64">
+                  <CommandEmpty>Keine Branche für diesen Filter.</CommandEmpty>
+                  <CommandGroup>
+                    <CommandItem
+                      value="Auswahl leeren"
+                      onSelect={() => setSelectedIndustries([])}
+                    >
+                      Auswahl leeren
+                    </CommandItem>
+                    {industryOptions.map((i) => {
+                      const checked = selectedIndustries.includes(i.value);
+                      return (
+                        <CommandItem
+                          key={i.value}
+                          value={i.value}
+                          data-checked={checked || undefined}
+                          onSelect={() =>
+                            setSelectedIndustries((prev) => toggleValue(prev, i.value))
+                          }
+                        >
+                          <CheckIcon
+                            className={cn(
+                              'size-3.5 shrink-0',
+                              checked ? 'opacity-100' : 'opacity-0',
+                            )}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{i.value}</span>
+                          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                            {i.n}
+                          </span>
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+
+          <Button
+            variant="outline"
+            className={cn(
+              'h-10 w-[220px] shrink-0 justify-between font-normal',
+              selectedSearches.length > 0 && 'border-foreground/30',
+            )}
+            onClick={() => {
+              setSearchDialogQ('');
+              setSearchDialogTag('all');
+              setSearchOpen(true);
+            }}
+          >
+            <span className="truncate">
+              {selectedSearches.length === 0
+                ? `Suche${searches.length ? ` (${searches.length})` : ''}`
+                : selectedSearches.length === 1
+                  ? (searchOptions.find((s) => s.id === selectedSearches[0])?.query ?? '1 Suche')
+                  : `${searchOptions.find((s) => s.id === selectedSearches[0])?.query ?? 'Suche'} +${selectedSearches.length - 1}`}
+            </span>
+            <ChevronsUpDownIcon className="ml-2 size-3.5 shrink-0 opacity-50" />
+          </Button>
+
+          <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+            <DialogContent className="flex h-[min(80vh,640px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+              <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12">
+                <DialogTitle>Suchen auswählen</DialogTitle>
+                <DialogDescription>
+                  {selectedSearches.length === 0
+                    ? `${searchOptions.length} Suchen verfügbar`
+                    : `${selectedSearches.length} ausgewählt`}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="flex min-h-0 flex-1">
+                <aside className="flex w-44 shrink-0 flex-col gap-0.5 overflow-y-auto border-r p-2">
+                  <button
+                    type="button"
+                    onClick={() => setSearchDialogTag('all')}
+                    className={cn(
+                      'flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors',
+                      searchDialogTag === 'all'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    <span>Alle</span>
+                    <span className="tabular-nums opacity-70">{searchOptions.length}</span>
+                  </button>
+                  {searchGroups.untagged.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchDialogTag('none')}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors',
+                        searchDialogTag === 'none'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                      )}
+                    >
+                      <span className="truncate">Ohne Tags</span>
+                      <span className="tabular-nums opacity-70">
+                        {searchGroups.untagged.length}
+                      </span>
+                    </button>
+                  )}
+                  {searchGroups.tagged.map((group) => (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => setSearchDialogTag(group.id)}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors',
+                        searchDialogTag === group.id
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                      )}
+                    >
+                      <span className="min-w-0 truncate">{group.name}</span>
+                      <span className="shrink-0 tabular-nums opacity-70">
+                        {group.items.length}
+                      </span>
+                    </button>
+                  ))}
+                </aside>
+
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="shrink-0 space-y-2 border-b p-2">
+                    <div className="relative">
+                      <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={searchDialogQ}
+                        onChange={(e) => setSearchDialogQ(e.target.value)}
+                        placeholder="In Suchen filtern…"
+                        className="h-9 pl-8"
+                        autoFocus
+                      />
+                    </div>
+                    {dialogSearchList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const ids = dialogSearchList.map((s) => s.id);
+                          setSelectedSearches((prev) => {
+                            if (allDialogVisibleSelected) {
+                              const drop = new Set(ids);
+                              return prev.filter((id) => !drop.has(id));
+                            }
+                            const next = new Set(prev);
+                            for (const id of ids) next.add(id);
+                            return [...next];
+                          });
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                      >
+                        <Checkbox
+                          checked={allDialogVisibleSelected}
+                          className="pointer-events-none"
+                          tabIndex={-1}
+                        />
+                        <span className="min-w-0 flex-1 truncate">
+                          {allDialogVisibleSelected
+                            ? `${dialogSelectAllLabel} abwählen`
+                            : `${dialogSelectAllLabel} auswählen`}
+                        </span>
+                        <span className="shrink-0 tabular-nums opacity-70">
+                          {dialogSearchList.length}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                    {dialogSearchList.length === 0 ? (
+                      <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                        Keine Suche für diesen Filter.
+                      </p>
+                    ) : (
+                      <ul className="flex flex-col">
+                        {dialogSearchList.map((s) => {
+                          const checked = selectedSearches.includes(s.id);
+                          return (
+                            <li key={s.id}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedSearches((prev) => toggleValue(prev, s.id))
+                                }
+                                className={cn(
+                                  'flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-muted/70',
+                                  checked && 'bg-muted/50',
+                                )}
+                              >
+                                <Checkbox
+                                  checked={checked}
+                                  className="mt-0.5 pointer-events-none"
+                                  tabIndex={-1}
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-medium">
+                                    {s.query}
+                                  </span>
+                                  {s.tags.length > 0 && searchDialogTag === 'all' && (
+                                    <span className="mt-0.5 flex flex-wrap gap-1">
+                                      {s.tags.map((t) => (
+                                        <span
+                                          key={t.id}
+                                          className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                                        >
+                                          {t.name}
+                                        </span>
+                                      ))}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+                                  {s.n}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="shrink-0 sm:justify-between">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={selectedSearches.length === 0}
+                  onClick={() => setSelectedSearches([])}
+                >
+                  Auswahl leeren
+                </Button>
+                <Button type="button" onClick={() => setSearchOpen(false)}>
+                  Fertig
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <button
+            type="button"
+            onClick={() => setHideAssigned((v) => !v)}
+            className={cn(
+              'h-10 shrink-0 rounded-md border px-3 text-[12px] font-medium transition-colors',
+              hideAssigned
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >
+            Nur neue
+          </button>
+        </div>
+
+        {hasFilter && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {selectedCities.map((c) => (
+              <button
+                key={`city-${c}`}
+                type="button"
+                onClick={() => setSelectedCities((prev) => prev.filter((v) => v !== c))}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-[11px] font-medium hover:bg-muted/80"
+              >
+                {c}
+                <span className="text-muted-foreground">×</span>
+              </button>
+            ))}
+            {selectedIndustries.map((i) => (
+              <button
+                key={`ind-${i}`}
+                type="button"
+                onClick={() => setSelectedIndustries((prev) => prev.filter((v) => v !== i))}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-[11px] font-medium hover:bg-muted/80"
+              >
+                {i}
+                <span className="text-muted-foreground">×</span>
+              </button>
+            ))}
+            {selectedSearches.map((id) => {
+              const label = searchOptions.find((s) => s.id === id)?.query
+                ?? searches.find((s) => s.id === id)?.query
+                ?? id.slice(0, 8);
+              return (
+                <button
+                  key={`search-${id}`}
+                  type="button"
+                  onClick={() => setSelectedSearches((prev) => prev.filter((v) => v !== id))}
+                  className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-md bg-muted px-2 text-[11px] font-medium hover:bg-muted/80"
+                >
+                  <span className="truncate">{label}</span>
+                  <span className="text-muted-foreground">×</span>
+                </button>
+              );
+            })}
+            {debounced && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setDebounced('');
+                }}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-[11px] font-medium hover:bg-muted/80"
+              >
+                Suche: {debounced}
+                <span className="text-muted-foreground">×</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCities([]);
+                setSelectedIndustries([]);
+                setSelectedSearches([]);
+                setSearch('');
+                setDebounced('');
+              }}
+              className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              Zurücksetzen
+            </button>
+            {meta && (
+              <span className="ml-auto font-mono text-[11px] tabular-nums text-muted-foreground">
+                {meta.total} Treffer
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {flash && (
+        <p className="text-[12px] text-muted-foreground">{flash}</p>
+      )}
+
+      {loading ? (
+        <div className="flex flex-col gap-2">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </div>
+      ) : visibleLeads.length === 0 ? (
+        <p className="py-8 text-sm text-muted-foreground">
+          {hideAssigned
+            ? 'Keine neuen Leads für diesen Filter.'
+            : 'Keine Leads gefunden.'}
+        </p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allPageSelected}
+                  onCheckedChange={toggleAllPage}
+                  aria-label="Seite auswählen"
+                />
+              </TableHead>
+              <TableHead className="font-mono text-[11px] tracking-wide">Firma</TableHead>
+              <TableHead className="font-mono text-[11px] tracking-wide">Stadt</TableHead>
+              <TableHead className="hidden font-mono text-[11px] tracking-wide md:table-cell">
+                Branche
+              </TableHead>
+              <TableHead className="font-mono text-[11px] tracking-wide">Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visibleLeads.map((l) => {
+              const assigned = assignedIds.has(l.id);
+              return (
+                <TableRow
+                  key={l.id}
+                  data-state={selected.has(l.id) ? 'selected' : undefined}
+                >
+                  <TableCell>
+                    <Checkbox
+                      checked={selected.has(l.id)}
+                      onCheckedChange={() => toggleOne(l.id)}
+                      aria-label={`${l.company_name} auswählen`}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-medium">{l.company_name}</span>
+                    {l.domain && (
+                      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                        {l.domain}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{l.city || '—'}</TableCell>
+                  <TableCell className="hidden text-muted-foreground md:table-cell">
+                    {l.industry || '—'}
+                  </TableCell>
+                  <TableCell className="font-mono text-[11px] text-muted-foreground">
+                    {assigned ? 'dabei' : 'neu'}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+
+      {meta && (
+        <ListPagination
+          page={meta.page}
+          pages={meta.pages}
+          total={meta.total}
+          limit={meta.limit}
+          onPageChange={setPage}
+          onLimitChange={(next) => {
+            setLimit(next);
+            setPage(1);
+          }}
+        />
+      )}
     </div>
   );
 }

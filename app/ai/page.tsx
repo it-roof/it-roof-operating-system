@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AiProviderSheet, type AiProvider } from '@/components/ai-provider-sheet';
 import { PageContainer } from '@/components/page-container';
+import { PageHeader } from '@/components/page-header';
 import { PlugIcon, PlusIcon, SparklesIcon } from 'lucide-react';
 
 type Conversation = {
@@ -52,35 +53,35 @@ export default function AiPage() {
 
   return (
     <PageContainer>
-        <div className="pt-8 pb-6 md:pt-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">AI</h1>
-            <p className="text-xs font-mono text-muted-foreground mt-1 tracking-wide">
-              {enabledCount === 0
-                ? 'Keine API angedockt'
-                : `${enabledCount} API${enabledCount === 1 ? '' : 's'} · ${conversations.length} Chats`}
-            </p>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-10 text-muted-foreground hover:text-foreground"
-              onClick={() => setSheetOpen(true)}
-              aria-label="APIs verwalten"
-            >
-              <PlugIcon className="size-4" />
-            </Button>
-            <Button
-              size="icon"
-              onClick={newChat}
-              className="rounded-full size-10"
-              aria-label="Neuer Chat"
-            >
-              <PlusIcon className="size-4" />
-            </Button>
-          </div>
-        </div>
+        <PageHeader
+          title="AI"
+          subtitle={
+            enabledCount === 0
+              ? 'Keine API angedockt'
+              : `${enabledCount} API${enabledCount === 1 ? '' : 's'} · ${conversations.length} Chats`
+          }
+          actions={(
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-10 text-muted-foreground hover:text-foreground"
+                onClick={() => setSheetOpen(true)}
+                aria-label="APIs verwalten"
+              >
+                <PlugIcon className="size-4" />
+              </Button>
+              <Button
+                size="icon"
+                onClick={newChat}
+                className="size-10 rounded-full"
+                aria-label="Neuer Chat"
+              >
+                <PlusIcon className="size-4" />
+              </Button>
+            </div>
+          )}
+        />
 
         {loading ? (
           <div className="flex flex-col gap-3">

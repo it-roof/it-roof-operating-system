@@ -10,6 +10,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/u
 import { PencilIcon, PlusIcon } from 'lucide-react';
 import { ConfirmDelete } from '@/components/leads/confirm-delete';
 import { ListPagination } from '@/components/leads/list-pagination';
+import { SaveForm } from '@/components/save-form';
 import { PAGE_SIZE, type PageSize } from '@/lib/leads/pagination';
 import { cn } from '@/lib/utils';
 
@@ -211,7 +212,7 @@ export function SearchQueriesTab() {
             <DrawerHeader className="px-0 pt-4 pb-5">
               <DrawerTitle>{editingId ? 'Suchanfrage bearbeiten' : 'Suchanfrage anlegen'}</DrawerTitle>
             </DrawerHeader>
-            <div className="flex flex-col gap-4">
+            <SaveForm onSave={save} className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <Label>Query</Label>
                 <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-10" />
@@ -221,12 +222,12 @@ export function SearchQueriesTab() {
                 <Switch checked={searched} onCheckedChange={setSearched} />
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" className="h-11 flex-1" onClick={() => setOpen(false)}>Abbrechen</Button>
-                <Button variant="success-solid" className="h-11 flex-1" disabled={saving || !query.trim()} onClick={save}>
+                <Button type="button" variant="outline" className="h-11 flex-1" onClick={() => setOpen(false)}>Abbrechen</Button>
+                <Button type="submit" variant="success-solid" className="h-11 flex-1" disabled={saving || !query.trim()}>
                   {saving ? 'Speichern…' : 'Speichern'}
                 </Button>
               </div>
-            </div>
+            </SaveForm>
           </div>
         </DrawerContent>
       </Drawer>

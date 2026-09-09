@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageContainer } from '@/components/page-container';
+import { PageHeader } from '@/components/page-header';
 
 type Project = { id: string; name: string; company_id: string | null; firma: string | null };
 
@@ -33,10 +34,10 @@ export default function ProjektePage() {
 
   return (
     <PageContainer>
-        <div className="pt-8 pb-6 md:pt-6">
-          <h1 className="text-2xl font-bold tracking-tight">Projekte</h1>
-          <p className="text-xs font-mono text-muted-foreground mt-1 tracking-wide">{projects.length} Projekte</p>
-        </div>
+        <PageHeader
+          title="Projekte"
+          subtitle={`${projects.length} Projekte`}
+        />
 
         <Input
           value={search}

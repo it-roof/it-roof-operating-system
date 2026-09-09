@@ -7,6 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Button } from '@/components/ui/button';
 import { ChevronDownIcon, MailIcon, PhoneIcon } from 'lucide-react';
 import { PageContainer } from '@/components/page-container';
+import { PageHeader } from '@/components/page-header';
 
 type Contact = { id: string; first_name: string; last_name: string; email: string | null; phone: string | null };
 type Company = { id: string; name: string; city: string | null; contacts: Contact[] };
@@ -30,10 +31,10 @@ export default function KundenPage() {
 
   return (
     <PageContainer>
-        <div className="pt-8 pb-6 md:pt-6">
-          <h1 className="text-2xl font-bold tracking-tight">Kunden</h1>
-          <p className="text-xs font-mono text-muted-foreground mt-1 tracking-wide">{companies.length} Firmen</p>
-        </div>
+        <PageHeader
+          title="Kunden"
+          subtitle={`${companies.length} Firmen`}
+        />
 
         <Input
           value={search}

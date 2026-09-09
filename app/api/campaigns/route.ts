@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeadsDb } from '@/lib/leads/db';
-import { campaign, campaignStep } from '@/lib/leads/schema';
+import { campaign, campaignLead, campaignStep } from '@/lib/leads/schema';
 import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { desc, eq, ilike, sql } from 'drizzle-orm';
 
@@ -14,10 +14,14 @@ export async function GET(req: NextRequest) {
       name: campaign.name,
       description: campaign.description,
       created_at: campaign.createdAt,
-      step_count: sql<number>`count(${campaignStep.id})::int`,
+      step_count: sql<number>`count(distinct ${campaignStep.id})::int`,
+      lead_count: sql<number>`count(distinct ${campaignLead.id})::int`,
+      active_count: sql<number>`count(distinct ${campaignLead.id}) filter (where ${campaignLead.status} <> 'done')::int`,
+      done_count: sql<number>`count(distinct ${campaignLead.id}) filter (where ${campaignLead.status} = 'done')::int`,
     })
     .from(campaign)
     .leftJoin(campaignStep, eq(campaignStep.campaignId, campaign.id))
+    .leftJoin(campaignLead, eq(campaignLead.campaignId, campaign.id))
     .where(q ? ilike(campaign.name, `%${q}%`) : undefined)
     .groupBy(campaign.id)
     .orderBy(desc(campaign.createdAt));

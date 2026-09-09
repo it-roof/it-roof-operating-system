@@ -1,50 +1,88 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeadsDb } from '@/lib/leads/db';
-import { lead, leadContact, searchQuery } from '@/lib/leads/schema';
+import { lead, leadContact, searchQuery, campaignLead } from '@/lib/leads/schema';
 import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { pageMeta, pageOffset, parseLimit, parsePage } from '@/lib/leads/pagination';
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { parseListParam } from '@/lib/leads/filter-params';
+
+function searchFilter(q: string) {
+  const pattern = `%${q}%`;
+  return or(
+    ilike(lead.companyName, pattern),
+    ilike(lead.city, pattern),
+    ilike(lead.industry, pattern),
+    ilike(lead.domain, pattern),
+    ilike(lead.phone, pattern),
+    sql`EXISTS (
+      SELECT 1 FROM lead_contact lc
+      WHERE lc.lead_id = ${lead.id}
+        AND (
+          lc.first_name ILIKE ${pattern}
+          OR lc.last_name ILIKE ${pattern}
+          OR lc.email ILIKE ${pattern}
+          OR CONCAT_WS(' ', lc.first_name, lc.last_name) ILIKE ${pattern}
+        )
+    )`,
+  )!;
+}
+
+function pushMulti(
+  filters: SQL[],
+  column: typeof lead.city | typeof lead.industry | typeof lead.searchQueryId,
+  values: string[],
+) {
+  if (values.length === 1) filters.push(eq(column, values[0]!));
+  else if (values.length > 1) filters.push(inArray(column, values));
+}
 
 export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim();
   const status = req.nextUrl.searchParams.get('status') ?? 'all';
-  const city = (req.nextUrl.searchParams.get('city') ?? '').trim();
-  const searchQueryId = (req.nextUrl.searchParams.get('search_query_id') ?? '').trim();
+  const cities = parseListParam(req.nextUrl.searchParams, ['city', 'cities']);
+  const industries = parseListParam(req.nextUrl.searchParams, ['industry', 'industries']);
+  const searchQueryIds = parseListParam(req.nextUrl.searchParams, [
+    'search_query_id',
+    'search_query_ids',
+  ]);
+  const excludeCampaignId = (req.nextUrl.searchParams.get('exclude_campaign_id') ?? '').trim();
   const page = parsePage(req.nextUrl.searchParams.get('page'));
   const limit = parseLimit(req.nextUrl.searchParams.get('limit'));
 
   const db = getLeadsDb();
 
-  const filters = [];
-  if (status !== 'all') filters.push(eq(lead.status, status));
-  if (city) filters.push(eq(lead.city, city));
-  if (searchQueryId) filters.push(eq(lead.searchQueryId, searchQueryId));
-  if (q) {
-    const pattern = `%${q}%`;
-    filters.push(
-      or(
-        ilike(lead.companyName, pattern),
-        ilike(lead.city, pattern),
-        ilike(lead.industry, pattern),
-        ilike(lead.domain, pattern),
-        ilike(lead.phone, pattern),
-        sql`EXISTS (
-          SELECT 1 FROM lead_contact lc
-          WHERE lc.lead_id = ${lead.id}
-            AND (
-              lc.first_name ILIKE ${pattern}
-              OR lc.last_name ILIKE ${pattern}
-              OR lc.email ILIKE ${pattern}
-              OR CONCAT_WS(' ', lc.first_name, lc.last_name) ILIKE ${pattern}
-            )
-        )`,
-      ),
-    );
+  const base: SQL[] = [];
+  if (status !== 'all') base.push(eq(lead.status, status));
+  if (q) base.push(searchFilter(q));
+
+  if (excludeCampaignId) {
+    const assigned = await db
+      .select({ leadId: campaignLead.leadId })
+      .from(campaignLead)
+      .where(eq(campaignLead.campaignId, excludeCampaignId));
+    const assignedIds = assigned.map((r) => r.leadId);
+    if (assignedIds.length) base.push(notInArray(lead.id, assignedIds));
   }
 
-  const where = filters.length ? and(...filters) : undefined;
+  const listFilters = [...base];
+  pushMulti(listFilters, lead.city, cities);
+  pushMulti(listFilters, lead.industry, industries);
+  pushMulti(listFilters, lead.searchQueryId, searchQueryIds);
+  const where = listFilters.length ? and(...listFilters) : undefined;
 
-  const [filteredRow, statsRow, cityRows, searchRows] = await Promise.all([
+  const cityFacetFilters = [...base, sql`${lead.city} IS NOT NULL AND ${lead.city} <> ''`];
+  pushMulti(cityFacetFilters, lead.industry, industries);
+  pushMulti(cityFacetFilters, lead.searchQueryId, searchQueryIds);
+
+  const industryFacetFilters = [...base, sql`${lead.industry} IS NOT NULL AND ${lead.industry} <> ''`];
+  pushMulti(industryFacetFilters, lead.city, cities);
+  pushMulti(industryFacetFilters, lead.searchQueryId, searchQueryIds);
+
+  const searchFacetFilters = [...base];
+  pushMulti(searchFacetFilters, lead.city, cities);
+  pushMulti(searchFacetFilters, lead.industry, industries);
+
+  const [filteredRow, statsRow, cityRows, industryRows, searchRows] = await Promise.all([
     db
       .select({ total: sql<number>`count(*)::int` })
       .from(lead)
@@ -63,19 +101,43 @@ export async function GET(req: NextRequest) {
         n: sql<number>`count(*)::int`,
       })
       .from(lead)
-      .where(sql`${lead.city} IS NOT NULL AND ${lead.city} <> ''`)
+      .where(and(...cityFacetFilters))
       .groupBy(lead.city)
-      .orderBy(lead.city),
+      .orderBy(desc(sql`count(*)`), lead.city),
+    db
+      .select({
+        industry: lead.industry,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(lead)
+      .where(and(...industryFacetFilters))
+      .groupBy(lead.industry)
+      .orderBy(desc(sql`count(*)`), lead.industry),
     db
       .select({
         id: searchQuery.id,
         query: searchQuery.query,
         lead_count: sql<number>`count(${lead.id})::int`,
+        tags: sql<{ id: string; name: string }[]>`
+          COALESCE(
+            (
+              SELECT json_agg(
+                json_build_object('id', t.id, 'name', t.name)
+                ORDER BY t.name
+              )
+              FROM search_query_tag sqt
+              JOIN tag t ON t.id = sqt.tag_id
+              WHERE sqt.search_query_id = ${searchQuery.id}
+            ),
+            '[]'::json
+          )
+        `,
       })
       .from(searchQuery)
-      .leftJoin(lead, eq(lead.searchQueryId, searchQuery.id))
+      .innerJoin(lead, eq(lead.searchQueryId, searchQuery.id))
+      .where(searchFacetFilters.length ? and(...searchFacetFilters) : undefined)
       .groupBy(searchQuery.id)
-      .orderBy(desc(searchQuery.createdAt)),
+      .orderBy(desc(sql`count(${lead.id})`), searchQuery.query),
   ]);
 
   const filteredTotal = filteredRow?.total ?? 0;
@@ -137,15 +199,23 @@ export async function GET(req: NextRequest) {
       all_total: statsRow?.total ?? 0,
       q,
       status,
-      city,
-      search_query_id: searchQueryId || null,
+      selected_cities: cities,
+      selected_industries: industries,
+      selected_search_query_ids: searchQueryIds,
+      city: cities[0] ?? '',
+      industry: industries[0] ?? '',
+      search_query_id: searchQueryIds[0] ?? null,
       cities: cityRows
         .filter((r): r is { city: string; n: number } => !!r.city)
         .map((r) => ({ city: r.city, n: r.n })),
+      industries: industryRows
+        .filter((r): r is { industry: string; n: number } => !!r.industry)
+        .map((r) => ({ industry: r.industry, n: r.n })),
       searches: searchRows.map((r) => ({
         id: r.id,
         query: r.query,
         lead_count: r.lead_count,
+        tags: r.tags ?? [],
       })),
     },
   });

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeadsDb } from '@/lib/leads/db';
 import { campaignStep } from '@/lib/leads/schema';
-import { nowIso, requireString } from '@/lib/leads/http';
+import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
+import { isCampaignStepType } from '@/lib/leads/campaign-steps';
 import { asc, eq } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
@@ -22,6 +23,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const campaignId = requireString(body.campaign_id ?? body.campaignId, 'campaign_id');
     const type = requireString(body.type, 'type');
+    if (!isCampaignStepType(type)) {
+      return NextResponse.json({ error: 'type ungültig' }, { status: 400 });
+    }
     const stepOrder = Number(body.step_order ?? body.stepOrder);
     const delayDays = Number(body.delay_days ?? body.delayDays ?? 0);
 
@@ -37,6 +41,8 @@ export async function POST(req: NextRequest) {
         stepOrder,
         type,
         delayDays: Number.isFinite(delayDays) ? delayDays : 0,
+        subjectTemplate: emptyToNull(body.subject_template ?? body.subjectTemplate),
+        bodyTemplate: emptyToNull(body.body_template ?? body.bodyTemplate),
         createdAt: nowIso(),
       })
       .returning();

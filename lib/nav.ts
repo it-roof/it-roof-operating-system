@@ -8,9 +8,10 @@ import {
   CrosshairIcon,
   ContactIcon,
   MegaphoneIcon,
-  ListOrderedIcon,
   Link2Icon,
   SearchIcon,
+  LayoutDashboardIcon,
+  InboxIcon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -60,13 +61,14 @@ export const OS_AREAS: OsArea[] = [
     id: 'leads',
     label: 'Leads',
     icon: CrosshairIcon,
-    href: '/leads',
+    href: '/leads/dashboard',
     match: ['/leads'],
     links: [
+      { href: '/leads/dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
+      { href: '/leads/inbox', label: 'Inbox', icon: InboxIcon },
       { href: '/leads', label: 'Leads', icon: CrosshairIcon },
       { href: '/leads/kontakte', label: 'Kontakte', icon: ContactIcon },
       { href: '/leads/kampagnen', label: 'Kampagnen', icon: MegaphoneIcon },
-      { href: '/leads/steps', label: 'Steps', icon: ListOrderedIcon },
       { href: '/leads/zuordnungen', label: 'Zuordnungen', icon: Link2Icon },
       { href: '/leads/suchen', label: 'Suchen', icon: SearchIcon },
     ],
@@ -93,4 +95,86 @@ export function isLinkActive(path: string, href: string) {
   // Detail-Routen unter einem Sidebar-Punkt (z. B. /ai/[id])
   if (href === '/ai' && path.startsWith('/ai/')) return true;
   return false;
+}
+
+export type BreadcrumbCrumb = {
+  label: string;
+  href?: string;
+};
+
+function titleFromSegment(seg: string) {
+  const decoded = decodeURIComponent(seg);
+  if (decoded.length <= 2) return decoded.toUpperCase();
+  return decoded.charAt(0).toUpperCase() + decoded.slice(1);
+}
+
+/** Best matching nav link for a path (longest href wins). */
+function getLinkForPath(path: string, area: OsArea = getAreaForPath(path)) {
+  return [...area.links]
+    .sort((a, b) => b.href.length - a.href.length)
+    .find((l) => {
+      if (l.href === '/') return path === '/';
+      return path === l.href || path.startsWith(`${l.href}/`);
+    }) ?? null;
+}
+
+/** Breadcrumbs for the top navbar: Area › Page › … */
+export function getBreadcrumbsForPath(path: string): BreadcrumbCrumb[] {
+  const area = getAreaForPath(path);
+  const link = getLinkForPath(path, area);
+
+  if (!link) {
+    const segs = path.split('/').filter(Boolean);
+    if (segs.length === 0) return [{ label: area.label }];
+    return [
+      { href: area.href, label: area.label },
+      ...segs.slice(0, -1).map((s, i) => ({
+        href: `/${segs.slice(0, i + 1).join('/')}`,
+        label: titleFromSegment(s),
+      })),
+      { label: titleFromSegment(segs[segs.length - 1]!) },
+    ];
+  }
+
+  // Genau der Nav-Link
+  if (path === link.href) {
+    if (link.href === area.href && link.label === area.label) {
+      return [{ label: area.label }];
+    }
+    return [
+      { href: area.href, label: area.label },
+      { label: link.label },
+    ];
+  }
+
+  // Tiefer unter dem Link (z. B. /leads/dashboard unter /leads)
+  const rest = path
+    .slice(link.href === '/' ? 0 : link.href.length)
+    .split('/')
+    .filter(Boolean);
+
+  const crumbs: BreadcrumbCrumb[] = [
+    { href: area.href, label: area.label },
+  ];
+
+  if (!(link.href === area.href && link.label === area.label)) {
+    crumbs.push({ href: link.href, label: link.label });
+  }
+
+  for (let i = 0; i < rest.length; i++) {
+    const isLast = i === rest.length - 1;
+    const href = `${link.href === '/' ? '' : link.href}/${rest.slice(0, i + 1).join('/')}`;
+    crumbs.push(
+      isLast
+        ? { label: titleFromSegment(rest[i]!) }
+        : { href, label: titleFromSegment(rest[i]!) },
+    );
+  }
+
+  const last = crumbs[crumbs.length - 1];
+  if (last?.href) {
+    crumbs[crumbs.length - 1] = { label: last.label };
+  }
+
+  return crumbs;
 }

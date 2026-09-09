@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SaveForm } from '@/components/save-form';
 import { cn } from '@/lib/utils';
 
 type Company = { id: string; name: string };
@@ -52,8 +53,7 @@ export default function NewTaskSheet({ open, defaultDate, onClose, onCreated }: 
       .then((data: Project[]) => { setProjects(data); setProjectId(data[0]?.id ?? ''); });
   }, [companyId]);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit() {
     if (!title.trim() || !projectId) return;
     setSaving(true);
     await fetch('/api/tasks', {
@@ -80,7 +80,7 @@ export default function NewTaskSheet({ open, defaultDate, onClose, onCreated }: 
             <DrawerTitle className="text-lg">Neue Aufgabe</DrawerTitle>
           </DrawerHeader>
 
-          <form onSubmit={submit} className="flex flex-col gap-5">
+          <SaveForm onSave={submit} className="flex flex-col gap-5">
             <div className="flex flex-col gap-2">
               <Label htmlFor="task-title" className="text-sm font-medium">Titel</Label>
               <Input
@@ -169,7 +169,7 @@ export default function NewTaskSheet({ open, defaultDate, onClose, onCreated }: 
                 {saving ? 'Speichern…' : 'Anlegen'}
               </Button>
             </div>
-          </form>
+          </SaveForm>
         </div>
       </DrawerContent>
     </Drawer>

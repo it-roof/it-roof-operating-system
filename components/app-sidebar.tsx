@@ -21,18 +21,15 @@ export function AppSidebar() {
   const area = getAreaForPath(path);
 
   return (
-    <Sidebar variant="inset" collapsible="icon">
+    <Sidebar collapsible="icon">
       <SidebarHeader className="flex h-12 flex-row items-center border-b border-sidebar-border p-0 px-3">
         <Link href={area.href} className="flex min-w-0 items-center gap-2.5">
-          <div className="flex size-6 shrink-0 items-center justify-center rounded-md bg-sidebar-primary font-heading text-[10px] font-bold text-sidebar-primary-foreground">
+          <div className="flex size-6 shrink-0 items-center justify-center bg-sidebar-primary font-heading text-[10px] font-bold text-sidebar-primary-foreground">
             P
           </div>
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
             <p className="truncate font-heading text-sm font-bold leading-none tracking-tight">
               Pinguine OS
-            </p>
-            <p className="mt-0.5 font-mono text-[10px] tracking-wide text-sidebar-foreground/50">
-              / {area.label}
             </p>
           </div>
         </Link>

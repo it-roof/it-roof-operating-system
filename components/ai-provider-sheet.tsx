@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { AI_PRESETS } from '@/lib/ai';
 import { cn } from '@/lib/utils';
+import { SaveForm } from '@/components/save-form';
 import { PencilIcon, TrashIcon } from 'lucide-react';
 
 export type AiProvider = {
@@ -64,8 +65,7 @@ export function AiProviderSheet({ open, onClose, onChanged }: Props) {
     setApiKey('');
   }
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  async function save() {
     if (!name.trim() || !baseUrl.trim() || !model.trim()) return;
     setSaving(true);
     const payload = {
@@ -122,7 +122,7 @@ export function AiProviderSheet({ open, onClose, onChanged }: Props) {
           </DrawerHeader>
 
           {editing ? (
-            <form onSubmit={save} className="flex flex-col gap-5">
+            <SaveForm onSave={save} className="flex flex-col gap-5">
               <div className="flex flex-wrap gap-1.5">
                 {AI_PRESETS.map((preset) => (
                   <button
@@ -196,7 +196,7 @@ export function AiProviderSheet({ open, onClose, onChanged }: Props) {
                   {saving ? 'Speichern…' : 'Speichern'}
                 </Button>
               </div>
-            </form>
+            </SaveForm>
           ) : (
             <div className="flex flex-col gap-4">
               {providers.length === 0 ? (

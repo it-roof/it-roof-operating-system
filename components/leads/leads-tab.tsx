@@ -18,6 +18,7 @@ import {
 import { ChevronsUpDownIcon, PencilIcon, PlusIcon, UserIcon, UsersIcon } from 'lucide-react';
 import { ConfirmDelete } from '@/components/leads/confirm-delete';
 import { ListPagination } from '@/components/leads/list-pagination';
+import { SaveForm } from '@/components/save-form';
 import { PAGE_SIZE, type PageSize } from '@/lib/leads/pagination';
 import { cn } from '@/lib/utils';
 
@@ -476,7 +477,7 @@ export function LeadsTab() {
             <DrawerHeader className="px-0 pt-4 pb-5">
               <DrawerTitle>{editingId ? 'Lead bearbeiten' : 'Lead anlegen'}</DrawerTitle>
             </DrawerHeader>
-            <div className="flex flex-col gap-4">
+            <SaveForm onSave={save} className="flex flex-col gap-4">
               <Field label="Firma">
                 <Input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} className="h-10" />
               </Field>
@@ -510,12 +511,12 @@ export function LeadsTab() {
                 </Field>
               </div>
               <div className="flex gap-2 pt-1">
-                <Button variant="outline" className="h-11 flex-1" onClick={() => setOpen(false)}>Abbrechen</Button>
-                <Button variant="success-solid" className="h-11 flex-1" disabled={saving || !form.company_name.trim()} onClick={save}>
+                <Button type="button" variant="outline" className="h-11 flex-1" onClick={() => setOpen(false)}>Abbrechen</Button>
+                <Button type="submit" variant="success-solid" className="h-11 flex-1" disabled={saving || !form.company_name.trim()}>
                   {saving ? 'Speichern…' : 'Speichern'}
                 </Button>
               </div>
-            </div>
+            </SaveForm>
           </div>
         </DrawerContent>
       </Drawer>

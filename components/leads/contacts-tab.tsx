@@ -9,6 +9,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/u
 import { PencilIcon, PlusIcon } from 'lucide-react';
 import { ConfirmDelete } from '@/components/leads/confirm-delete';
 import { ListPagination } from '@/components/leads/list-pagination';
+import { SaveForm } from '@/components/save-form';
 import { PAGE_SIZE, type PageSize } from '@/lib/leads/pagination';
 
 type Contact = {
@@ -163,7 +164,7 @@ export function ContactsTab() {
             <DrawerHeader className="px-0 pt-4 pb-5">
               <DrawerTitle>{editingId ? 'Kontakt bearbeiten' : 'Kontakt anlegen'}</DrawerTitle>
             </DrawerHeader>
-            <div className="flex flex-col gap-4">
+            <SaveForm onSave={save} className="flex flex-col gap-4">
               <Field label="Lead-ID">
                 <Input value={form.lead_id} onChange={(e) => setForm({ ...form, lead_id: e.target.value })} className="h-10 font-mono text-xs" />
               </Field>
@@ -188,12 +189,12 @@ export function ContactsTab() {
                 <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="h-10" />
               </Field>
               <div className="flex gap-2">
-                <Button variant="outline" className="flex-1 h-11" onClick={() => setOpen(false)}>Abbrechen</Button>
-                <Button variant="success-solid" className="flex-1 h-11" disabled={saving || !form.lead_id.trim()} onClick={save}>
+                <Button type="button" variant="outline" className="flex-1 h-11" onClick={() => setOpen(false)}>Abbrechen</Button>
+                <Button type="submit" variant="success-solid" className="flex-1 h-11" disabled={saving || !form.lead_id.trim()}>
                   {saving ? 'Speichern…' : 'Speichern'}
                 </Button>
               </div>
-            </div>
+            </SaveForm>
           </div>
         </DrawerContent>
       </Drawer>

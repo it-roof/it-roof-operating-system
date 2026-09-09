@@ -40,6 +40,8 @@ export const campaignStep = pgTable('campaign_step', {
   stepOrder: integer('step_order').notNull(),
   type: text().notNull(),
   delayDays: integer('delay_days').notNull(),
+  subjectTemplate: text('subject_template'),
+  bodyTemplate: text('body_template'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }),
 });
 
@@ -51,6 +53,18 @@ export const campaignLead = pgTable('campaign_lead', {
   status: text().notNull(),
   lastActionAt: timestamp('last_action_at', { withTimezone: true, mode: 'string' }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }),
+});
+
+/** Historie: Step erledigt / übersprungen */
+export const campaignLeadAction = pgTable('campaign_lead_action', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  campaignLeadId: uuid('campaign_lead_id').notNull(),
+  stepId: uuid('step_id').notNull(),
+  action: text().notNull(),
+  renderedSubject: text('rendered_subject'),
+  renderedBody: text('rendered_body'),
+  note: text(),
+  actedAt: timestamp('acted_at', { withTimezone: true, mode: 'string' }).notNull(),
 });
 
 export const searchQuery = pgTable('search_query', {

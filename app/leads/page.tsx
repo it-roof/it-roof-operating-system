@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export default function LeadsPage() {
   return (
-    <PageContainer wide>
+    <PageContainer>
       <PageHeader title="Leads" subtitle="lead · CRUD" />
       <Suspense fallback={<Skeleton className="h-64 w-full rounded-lg" />}>
         <LeadsTab />

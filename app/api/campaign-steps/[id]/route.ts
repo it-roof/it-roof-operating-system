@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeadsDb } from '@/lib/leads/db';
 import { campaignLead, campaignStep } from '@/lib/leads/schema';
-import { requireString } from '@/lib/leads/http';
+import { emptyToNull, requireString } from '@/lib/leads/http';
+import { isCampaignStepType } from '@/lib/leads/campaign-steps';
 import { eq } from 'drizzle-orm';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -22,7 +23,13 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (body.campaign_id !== undefined || body.campaignId !== undefined) {
     updates.campaignId = requireString(body.campaign_id ?? body.campaignId, 'campaign_id');
   }
-  if (body.type !== undefined) updates.type = requireString(body.type, 'type');
+  if (body.type !== undefined) {
+    const type = requireString(body.type, 'type');
+    if (!isCampaignStepType(type)) {
+      return NextResponse.json({ error: 'type ungültig' }, { status: 400 });
+    }
+    updates.type = type;
+  }
   if (body.step_order !== undefined || body.stepOrder !== undefined) {
     const n = Number(body.step_order ?? body.stepOrder);
     if (!Number.isFinite(n)) return NextResponse.json({ error: 'step_order ungültig' }, { status: 400 });
@@ -32,6 +39,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const n = Number(body.delay_days ?? body.delayDays);
     if (!Number.isFinite(n)) return NextResponse.json({ error: 'delay_days ungültig' }, { status: 400 });
     updates.delayDays = n;
+  }
+  if (body.subject_template !== undefined || body.subjectTemplate !== undefined) {
+    updates.subjectTemplate = emptyToNull(body.subject_template ?? body.subjectTemplate);
+  }
+  if (body.body_template !== undefined || body.bodyTemplate !== undefined) {
+    updates.bodyTemplate = emptyToNull(body.body_template ?? body.bodyTemplate);
   }
 
   if (Object.keys(updates).length === 0) {

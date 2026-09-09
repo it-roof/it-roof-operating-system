@@ -1,12 +1,12 @@
 'use client';
 
 import { PageContainer } from '@/components/page-container';
-import { CampaignsTab } from '@/components/leads/campaigns-tab';
+import { WorkInbox } from '@/components/leads/work-inbox';
 
-export default function LeadsKampagnenPage() {
+export default function LeadsInboxPage() {
   return (
     <PageContainer fill>
-      <CampaignsTab />
+      <WorkInbox />
     </PageContainer>
   );
 }

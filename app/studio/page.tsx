@@ -284,10 +284,10 @@ export default function StudioPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <header className="shrink-0 flex flex-wrap items-end justify-between gap-3 border-b px-4 py-4 md:px-8">
+      <header className="flex shrink-0 flex-wrap items-end justify-between gap-3 border-b px-4 pt-6 pb-4 md:px-8">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Studio</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="mt-1 font-mono text-xs tracking-wide text-muted-foreground">
             Links beschreiben, rechts Ergebnisse und Warteschlange.
           </p>
         </div>
