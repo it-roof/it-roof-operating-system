@@ -65,7 +65,7 @@ export const OS_AREAS: OsArea[] = [
     match: ['/leads'],
     links: [
       { href: '/leads/dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
-      { href: '/leads/inbox', label: 'Inbox', icon: InboxIcon },
+      { href: '/leads/abarbeiten', label: 'Abarbeiten', icon: InboxIcon },
       { href: '/leads', label: 'Leads', icon: CrosshairIcon },
       { href: '/leads/kontakte', label: 'Kontakte', icon: ContactIcon },
       { href: '/leads/kampagnen', label: 'Kampagnen', icon: MegaphoneIcon },

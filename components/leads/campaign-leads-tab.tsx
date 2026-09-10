@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { ListPagination } from '@/components/leads/list-pagination';
 import { PageHeader } from '@/components/page-header';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { campaignFlowLabel } from '@/lib/leads/campaign-steps';
 import { appendListParams } from '@/lib/leads/filter-params';
 import { PAGE_SIZE, type PageSize } from '@/lib/leads/pagination';
@@ -57,6 +58,16 @@ type Lead = {
 type Facet = { value: string; n: number };
 type SearchTag = { id: string; name: string };
 type SearchOption = { id: string; query: string; n: number; tags: SearchTag[] };
+
+const STATUS_DE: Record<string, string> = {
+  complete: 'Vollständig',
+  raw: 'Roh',
+  error_incomplete: 'Unvollständig',
+  error_no_domain: 'Ohne Domain',
+};
+
+const STATUS_OPTIONS = ['all', 'complete', 'raw', 'error_incomplete', 'error_no_domain'] as const;
+type LeadScope = 'new' | 'assigned';
 
 function multiLabel(selected: string[], empty: string) {
   if (selected.length === 0) return empty;
@@ -87,6 +98,7 @@ export function CampaignLeadsTab() {
 
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [status, setStatus] = useState('all');
   const [selectedCities, setSelectedCities] = useState<string[]>([]);
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
   const [selectedSearches, setSelectedSearches] = useState<string[]>([]);
@@ -99,13 +111,14 @@ export function CampaignLeadsTab() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchDialogTag, setSearchDialogTag] = useState<'all' | 'none' | string>('all');
   const [searchDialogQ, setSearchDialogQ] = useState('');
-  const [hideAssigned, setHideAssigned] = useState(true);
+  const [scope, setScope] = useState<LeadScope>('new');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState<PageSize>(PAGE_SIZE);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assigning, setAssigning] = useState(false);
   const [matchAvailable, setMatchAvailable] = useState(0);
+  const [matchAssigned, setMatchAssigned] = useState(0);
   const [flash, setFlash] = useState<string | null>(null);
 
   const selectedCampaign = campaigns.find((c) => c.id === campaignId) ?? null;
@@ -113,6 +126,7 @@ export function CampaignLeadsTab() {
     selectedCities.length > 0
     || selectedIndustries.length > 0
     || selectedSearches.length > 0
+    || status !== 'all'
     || !!debounced;
 
   const citiesKey = selectedCities.join('\0');
@@ -259,10 +273,12 @@ export function CampaignLeadsTab() {
       page: String(page),
     });
     if (debounced) params.set('q', debounced);
+    if (status !== 'all') params.set('status', status);
     appendListParams(params, 'city', selectedCities);
     appendListParams(params, 'industry', selectedIndustries);
     appendListParams(params, 'search_query_id', selectedSearches);
-    if (hideAssigned) params.set('exclude_campaign_id', campaignId);
+    if (scope === 'new') params.set('exclude_campaign_id', campaignId);
+    if (scope === 'assigned') params.set('include_campaign_id', campaignId);
 
     const res = await fetch(`/api/leads?${params}`, { signal });
     const data = await res.json();
@@ -316,13 +332,15 @@ export function CampaignLeadsTab() {
     setSelectedCities([]);
     setSelectedIndustries([]);
     setSelectedSearches([]);
+    setStatus('all');
+    setScope('new');
     setFlash(null);
     loadAssigned(campaignId);
   }, [campaignId]);
 
   useEffect(() => {
     setPage(1);
-  }, [debounced, citiesKey, industriesKey, searchesKey, hideAssigned]);
+  }, [debounced, citiesKey, industriesKey, searchesKey, scope, status]);
 
   useEffect(() => {
     if (!campaignId) return;
@@ -331,11 +349,12 @@ export function CampaignLeadsTab() {
       if (e.name !== 'AbortError') setLoading(false);
     });
     return () => ctrl.abort();
-  }, [campaignId, debounced, citiesKey, industriesKey, searchesKey, page, limit, hideAssigned]);
+  }, [campaignId, debounced, citiesKey, industriesKey, searchesKey, page, limit, scope, status]);
 
   useEffect(() => {
     if (!campaignId || !hasFilter) {
       setMatchAvailable(0);
+      setMatchAssigned(0);
       return;
     }
     let cancelled = false;
@@ -343,21 +362,22 @@ export function CampaignLeadsTab() {
     appendListParams(params, 'city', selectedCities);
     appendListParams(params, 'industry', selectedIndustries);
     appendListParams(params, 'search_query_id', selectedSearches);
+    if (status !== 'all') params.set('status', status);
     if (debounced) params.set('q', debounced);
     fetch(`/api/campaign-leads/bulk?${params}`)
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled) setMatchAvailable(data.available ?? 0);
+        if (!cancelled) {
+          setMatchAvailable(data.available ?? 0);
+          setMatchAssigned(data.already_assigned ?? 0);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [campaignId, citiesKey, industriesKey, searchesKey, debounced, hasFilter, assignedIds]);
+  }, [campaignId, citiesKey, industriesKey, searchesKey, debounced, hasFilter, assignedIds, status]);
 
   const visibleLeads = leads;
-
-  const selectedNewIds = [...selected].filter((id) => !assignedIds.has(id));
-  const selectedAssignedIds = [...selected].filter((id) => assignedIds.has(id));
 
   const allPageSelected =
     visibleLeads.length > 0
@@ -436,6 +456,38 @@ export function CampaignLeadsTab() {
     await loadLeads();
   }
 
+  async function unassignMatching() {
+    if (!campaignId || !hasFilter || assigning || matchAssigned === 0) return;
+    setAssigning(true);
+    setFlash(null);
+    const res = await fetch('/api/campaign-leads/bulk', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        campaign_id: campaignId,
+        cities: selectedCities.length ? selectedCities : undefined,
+        industries: selectedIndustries.length ? selectedIndustries : undefined,
+        search_query_ids: selectedSearches.length ? selectedSearches : undefined,
+        status: status !== 'all' ? status : undefined,
+        q: debounced || undefined,
+      }),
+    });
+    const data = await res.json();
+    setAssigning(false);
+    if (!res.ok) {
+      setFlash(data.error ?? 'Aufheben fehlgeschlagen');
+      return;
+    }
+    setFlash(
+      data.removed === 0
+        ? 'Keine Zuordnung entfernt.'
+        : `${data.removed} Zuordnung${data.removed !== 1 ? 'en' : ''} aufgehoben`,
+    );
+    setSelected(new Set());
+    await loadAssigned(campaignId);
+    await loadLeads();
+  }
+
   async function assignMatching() {
     if (!campaignId || !hasFilter || assigning) return;
     setAssigning(true);
@@ -448,6 +500,7 @@ export function CampaignLeadsTab() {
         cities: selectedCities.length ? selectedCities : undefined,
         industries: selectedIndustries.length ? selectedIndustries : undefined,
         search_query_ids: selectedSearches.length ? selectedSearches : undefined,
+        status: status !== 'all' ? status : undefined,
         q: debounced || undefined,
       }),
     });
@@ -544,46 +597,87 @@ export function CampaignLeadsTab() {
     <div className="flex flex-col gap-4">
       <PageHeader
         title={selectedCampaign?.name ?? 'Kampagne'}
-        subtitle={`${assignedIds.size} bereits zugeordnet`}
+        subtitle={
+          scope === 'new'
+            ? 'Leads der Kampagne zuordnen'
+            : `${assignedIds.size} zugeordnet`
+        }
         onBack={() => setCampaignId(null)}
-        actions={(
-          <>
-            <Button
-              variant="outline"
-              className="h-10 gap-1.5"
-              disabled={assigning || selectedAssignedIds.length === 0}
-              onClick={() => unassignIds(selectedAssignedIds)}
-            >
-              <MinusIcon className="size-3.5" />
-              {selectedAssignedIds.length > 0
-                ? `Aufheben (${selectedAssignedIds.length})`
-                : 'Aufheben'}
-            </Button>
-            <Button
-              variant="outline"
-              className="h-10 gap-1.5"
-              disabled={assigning || !hasFilter || matchAvailable === 0}
-              onClick={assignMatching}
-            >
-              <PlusIcon className="size-3.5" />
-              {hasFilter && matchAvailable > 0
-                ? `Alle Treffer (${matchAvailable})`
-                : 'Alle Treffer'}
-            </Button>
-            <Button
-              variant="success-solid"
-              className="h-10 gap-1.5"
-              disabled={assigning || selectedNewIds.length === 0}
-              onClick={() => assignIds(selectedNewIds)}
-            >
-              <PlusIcon className="size-3.5" />
-              {selectedNewIds.length > 0
-                ? `Zuordnen (${selectedNewIds.length})`
-                : 'Zuordnen'}
-            </Button>
-          </>
-        )}
+        actions={
+          scope === 'assigned' ? (
+            <>
+              <Button
+                variant="outline"
+                className="h-10 gap-1.5"
+                disabled={assigning || selected.size === 0}
+                onClick={() => unassignIds([...selected])}
+              >
+                <MinusIcon className="size-3.5" />
+                {selected.size > 0
+                  ? `Aufheben (${selected.size})`
+                  : 'Aufheben'}
+              </Button>
+              <Button
+                variant="outline"
+                className="h-10 gap-1.5"
+                disabled={assigning || !hasFilter || matchAssigned === 0}
+                onClick={unassignMatching}
+              >
+                <MinusIcon className="size-3.5" />
+                {hasFilter && matchAssigned > 0
+                  ? `Alle Treffer (${matchAssigned})`
+                  : 'Alle Treffer'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                className="h-10 gap-1.5"
+                disabled={assigning || !hasFilter || matchAvailable === 0}
+                onClick={assignMatching}
+              >
+                <PlusIcon className="size-3.5" />
+                {hasFilter && matchAvailable > 0
+                  ? `Alle Treffer (${matchAvailable})`
+                  : 'Alle Treffer'}
+              </Button>
+              <Button
+                variant="success-solid"
+                className="h-10 gap-1.5"
+                disabled={assigning || selected.size === 0}
+                onClick={() => assignIds([...selected])}
+              >
+                <PlusIcon className="size-3.5" />
+                {selected.size > 0
+                  ? `Zuordnen (${selected.size})`
+                  : 'Zuordnen'}
+              </Button>
+            </>
+          )
+        }
       />
+
+      <Tabs
+        value={scope}
+        onValueChange={(v) => {
+          setScope(v as LeadScope);
+          setSelected(new Set());
+          setFlash(null);
+        }}
+      >
+        <TabsList className="h-10 w-full max-w-md">
+          <TabsTrigger value="new" className="flex-1 px-3 text-[13px]">
+            Zuordnen
+          </TabsTrigger>
+          <TabsTrigger value="assigned" className="flex-1 gap-1.5 px-3 text-[13px]">
+            Zugeordnet
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {assignedIds.size}
+            </span>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap gap-2">
@@ -918,19 +1012,24 @@ export function CampaignLeadsTab() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+        </div>
 
-          <button
-            type="button"
-            onClick={() => setHideAssigned((v) => !v)}
-            className={cn(
-              'h-10 shrink-0 rounded-md border px-3 text-[12px] font-medium transition-colors',
-              hideAssigned
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-border text-muted-foreground hover:text-foreground',
-            )}
-          >
-            Nur neue
-          </button>
+        <div className="flex flex-wrap gap-1.5">
+          {STATUS_OPTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setStatus(s)}
+              className={cn(
+                'rounded-full border px-3 py-1.5 text-[11px] font-mono font-medium tracking-wide transition-all',
+                status === s
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {s === 'all' ? 'Alle' : STATUS_DE[s]}
+            </button>
+          ))}
         </div>
 
         {hasFilter && (
@@ -1020,9 +1119,9 @@ export function CampaignLeadsTab() {
         </div>
       ) : visibleLeads.length === 0 ? (
         <p className="py-8 text-sm text-muted-foreground">
-          {hideAssigned
+          {scope === 'new'
             ? 'Keine neuen Leads für diesen Filter.'
-            : 'Keine Leads gefunden.'}
+            : 'Keine zugeordneten Leads für diesen Filter.'}
         </p>
       ) : (
         <Table>
@@ -1044,38 +1143,35 @@ export function CampaignLeadsTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visibleLeads.map((l) => {
-              const assigned = assignedIds.has(l.id);
-              return (
-                <TableRow
-                  key={l.id}
-                  data-state={selected.has(l.id) ? 'selected' : undefined}
-                >
-                  <TableCell>
-                    <Checkbox
-                      checked={selected.has(l.id)}
-                      onCheckedChange={() => toggleOne(l.id)}
-                      aria-label={`${l.company_name} auswählen`}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-medium">{l.company_name}</span>
-                    {l.domain && (
-                      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                        {l.domain}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{l.city || '—'}</TableCell>
-                  <TableCell className="hidden text-muted-foreground md:table-cell">
-                    {l.industry || '—'}
-                  </TableCell>
-                  <TableCell className="font-mono text-[11px] text-muted-foreground">
-                    {assigned ? 'dabei' : 'neu'}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            {visibleLeads.map((l) => (
+              <TableRow
+                key={l.id}
+                data-state={selected.has(l.id) ? 'selected' : undefined}
+              >
+                <TableCell>
+                  <Checkbox
+                    checked={selected.has(l.id)}
+                    onCheckedChange={() => toggleOne(l.id)}
+                    aria-label={`${l.company_name} auswählen`}
+                  />
+                </TableCell>
+                <TableCell>
+                  <span className="font-medium">{l.company_name}</span>
+                  {l.domain && (
+                    <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                      {l.domain}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className="text-muted-foreground">{l.city || '—'}</TableCell>
+                <TableCell className="hidden text-muted-foreground md:table-cell">
+                  {l.industry || '—'}
+                </TableCell>
+                <TableCell className="font-mono text-[11px] text-muted-foreground">
+                  {STATUS_DE[l.status] ?? l.status}
+                </TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       )}

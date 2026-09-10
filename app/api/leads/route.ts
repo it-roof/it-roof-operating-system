@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeadsDb } from '@/lib/leads/db';
-import { lead, leadContact, searchQuery, campaignLead } from '@/lib/leads/schema';
+import { lead, leadContact, searchQuery } from '@/lib/leads/schema';
 import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { pageMeta, pageOffset, parseLimit, parsePage } from '@/lib/leads/pagination';
-import { and, desc, eq, ilike, inArray, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { parseListParam } from '@/lib/leads/filter-params';
 
 function searchFilter(q: string) {
@@ -36,6 +36,22 @@ function pushMulti(
   else if (values.length > 1) filters.push(inArray(column, values));
 }
 
+function inCampaign(campaignId: string) {
+  return sql`EXISTS (
+    SELECT 1 FROM campaign_lead cl
+    WHERE cl.lead_id = ${lead.id}
+      AND cl.campaign_id = ${campaignId}::uuid
+  )`;
+}
+
+function notInCampaign(campaignId: string) {
+  return sql`NOT EXISTS (
+    SELECT 1 FROM campaign_lead cl
+    WHERE cl.lead_id = ${lead.id}
+      AND cl.campaign_id = ${campaignId}::uuid
+  )`;
+}
+
 export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim();
   const status = req.nextUrl.searchParams.get('status') ?? 'all';
@@ -46,6 +62,7 @@ export async function GET(req: NextRequest) {
     'search_query_ids',
   ]);
   const excludeCampaignId = (req.nextUrl.searchParams.get('exclude_campaign_id') ?? '').trim();
+  const includeCampaignId = (req.nextUrl.searchParams.get('include_campaign_id') ?? '').trim();
   const page = parsePage(req.nextUrl.searchParams.get('page'));
   const limit = parseLimit(req.nextUrl.searchParams.get('limit'));
 
@@ -55,14 +72,8 @@ export async function GET(req: NextRequest) {
   if (status !== 'all') base.push(eq(lead.status, status));
   if (q) base.push(searchFilter(q));
 
-  if (excludeCampaignId) {
-    const assigned = await db
-      .select({ leadId: campaignLead.leadId })
-      .from(campaignLead)
-      .where(eq(campaignLead.campaignId, excludeCampaignId));
-    const assignedIds = assigned.map((r) => r.leadId);
-    if (assignedIds.length) base.push(notInArray(lead.id, assignedIds));
-  }
+  if (includeCampaignId) base.push(inCampaign(includeCampaignId));
+  else if (excludeCampaignId) base.push(notInCampaign(excludeCampaignId));
 
   const listFilters = [...base];
   pushMulti(listFilters, lead.city, cities);

@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -19,11 +20,10 @@ import {
 } from '@/components/ui/dialog';
 import {
   ArrowLeftIcon,
-  CheckIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  CopyIcon,
   FileTextIcon,
+  InboxIcon,
   MailIcon,
   MessageCircleIcon,
   PencilIcon,
@@ -31,7 +31,6 @@ import {
   PlusIcon,
   ScrollTextIcon,
   SearchIcon,
-  SkipForwardIcon,
   TimerIcon,
   type LucideIcon,
 } from 'lucide-react';
@@ -73,54 +72,6 @@ type Step = {
   subjectTemplate: string | null;
   bodyTemplate: string | null;
 };
-
-type WorkItem = {
-  id: string;
-  lead_id: string;
-  status: string;
-  company_name: string;
-  city: string | null;
-  domain: string | null;
-  contact: {
-    id: string;
-    salutation: string | null;
-    first_name: string | null;
-    last_name: string | null;
-    position: string | null;
-    email: string | null;
-    phone: string | null;
-  } | null;
-  current_step: {
-    id: string;
-    type: string;
-    label: string;
-    step_order: number;
-    delay_days: number;
-    uses_template: boolean;
-  } | null;
-  rendered: {
-    subject: string;
-    body: string;
-  };
-};
-
-type DetailTab = 'flow' | 'work';
-
-function contactLabel(c: WorkItem['contact']) {
-  if (!c) return null;
-  const name = [c.salutation, c.first_name, c.last_name].filter(Boolean).join(' ').trim();
-  return name || null;
-}
-
-async function copyText(text: string) {
-  if (!text) return false;
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const STEP_ICONS: Record<string, LucideIcon> = {
   email: MailIcon,
@@ -168,13 +119,6 @@ export function CampaignsTab() {
   const [stepBody, setStepBody] = useState('');
   const [savingStep, setSavingStep] = useState(false);
 
-  const [detailTab, setDetailTab] = useState<DetailTab>('flow');
-  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
-  const [workLoading, setWorkLoading] = useState(false);
-  const [workId, setWorkId] = useState<string | null>(null);
-  const [completing, setCompleting] = useState(false);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-
   async function load(opts?: { preferId?: string | null; silent?: boolean }) {
     if (!opts?.silent) setLoading(true);
     const [campsRes, stepsRes] = await Promise.all([
@@ -198,24 +142,6 @@ export function CampaignsTab() {
   useEffect(() => {
     load();
   }, []);
-
-  const loadWork = useCallback(async (campaignId: string) => {
-    setWorkLoading(true);
-    const res = await fetch(`/api/campaigns/${campaignId}/work`);
-    const data = await res.json();
-    const items: WorkItem[] = data.items ?? [];
-    setWorkItems(items);
-    setWorkId((prev) => {
-      if (prev && items.some((i) => i.id === prev)) return prev;
-      return items[0]?.id ?? null;
-    });
-    setWorkLoading(false);
-  }, []);
-
-  useEffect(() => {
-    if (!selectedId || detailTab !== 'work') return;
-    loadWork(selectedId);
-  }, [selectedId, detailTab, loadWork]);
 
   const stepsByCampaign = useMemo(() => {
     const map = new Map<string, Step[]>();
@@ -242,30 +168,6 @@ export function CampaignsTab() {
 
   const selected = rows.find((c) => c.id === selectedId) ?? null;
   const selectedSteps = selected ? (stepsByCampaign.get(selected.id) ?? []) : [];
-  const activeWork = workItems.find((i) => i.id === workId) ?? workItems[0] ?? null;
-
-  async function handleCopy(key: string, text: string) {
-    const ok = await copyText(text);
-    if (!ok) return;
-    setCopiedKey(key);
-    window.setTimeout(() => {
-      setCopiedKey((prev) => (prev === key ? null : prev));
-    }, 1500);
-  }
-
-  async function completeWork(action: 'done' | 'skipped') {
-    if (!activeWork || !selected || completing) return;
-    setCompleting(true);
-    setCopiedKey(null);
-    await fetch(`/api/campaign-leads/${activeWork.id}/complete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
-    });
-    setCompleting(false);
-    await loadWork(selected.id);
-  }
-
   function openCreateCampaign() {
     setEditingCampaignId(null);
     setName('');
@@ -531,7 +433,7 @@ export function CampaignsTab() {
       <aside
         className={cn(
           'min-h-0 w-full shrink-0 flex-col border-border/60 lg:flex lg:border-l',
-          detailTab === 'work' ? 'lg:w-[28rem] xl:w-[32rem]' : 'lg:w-[24rem] xl:w-[26rem]',
+          'lg:w-[24rem] xl:w-[26rem]',
           rightPad,
           showMobileDetail ? 'flex flex-1' : 'hidden',
         )}
@@ -578,330 +480,126 @@ export function CampaignsTab() {
               </p>
             )}
 
-            <div className="flex shrink-0 gap-1 border-b border-border/60 py-2">
-              <button
-                type="button"
-                onClick={() => setDetailTab('flow')}
-                className={cn(
-                  'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
-                  detailTab === 'flow'
-                    ? 'bg-muted text-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Ablauf
-              </button>
-              <button
-                type="button"
-                onClick={() => setDetailTab('work')}
-                className={cn(
-                  'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
-                  detailTab === 'work'
-                    ? 'bg-muted text-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Abarbeiten
-                {detailTab === 'work' && workItems.length > 0 && (
-                  <span className="ml-1.5 font-mono tabular-nums text-muted-foreground">
-                    {workItems.length}
-                  </span>
-                )}
-              </button>
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 py-2">
+              <p className="text-[11px] font-medium tracking-wide text-muted-foreground">Ablauf</p>
+              <Button asChild size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs">
+                <Link href={`/leads/abarbeiten?campaign=${selected.id}`}>
+                  <InboxIcon className="size-3.5" />
+                  Abarbeiten
+                </Link>
+              </Button>
             </div>
 
-            {detailTab === 'flow' ? (
-              <>
-                <div className="flex shrink-0 items-center justify-between py-3">
-                  <p className="text-[11px] font-medium tracking-wide text-muted-foreground">Schritte</p>
-                  <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs" onClick={openCreateStep}>
+            <div className="flex shrink-0 items-center justify-between py-3">
+              <p className="text-[11px] font-medium tracking-wide text-muted-foreground">Schritte</p>
+              <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs" onClick={openCreateStep}>
+                <PlusIcon className="size-3.5" />
+                Schritt
+              </Button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto pb-4">
+              {selectedSteps.length === 0 ? (
+                <div className="flex h-full min-h-48 flex-col justify-center gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    Noch keine Schritte. Der Ablauf startet mit dem ersten Kontakt.
+                  </p>
+                  <Button className="h-9 w-fit gap-1.5" onClick={openCreateStep}>
                     <PlusIcon className="size-3.5" />
-                    Schritt
+                    Ersten Schritt
                   </Button>
                 </div>
-
-                <div className="min-h-0 flex-1 overflow-y-auto pb-4">
-                  {selectedSteps.length === 0 ? (
-                    <div className="flex h-full min-h-48 flex-col justify-center gap-3">
-                      <p className="text-sm text-muted-foreground">
-                        Noch keine Schritte. Der Ablauf startet mit dem ersten Kontakt.
-                      </p>
-                      <Button className="h-9 w-fit gap-1.5" onClick={openCreateStep}>
-                        <PlusIcon className="size-3.5" />
-                        Ersten Schritt
-                      </Button>
-                    </div>
-                  ) : (
-                    <ol className="space-y-0">
-                      {selectedSteps.map((s, index) => {
-                        const Icon = stepIcon(s.type);
-                        const { label } = campaignStepMeta(s.type);
-                        const isLast = index === selectedSteps.length - 1;
-                        const templateStatus = stepTemplateStatus(
-                          s.type,
-                          s.subjectTemplate,
-                          s.bodyTemplate,
-                        );
-                        return (
-                          <li key={s.id} className="relative flex gap-3">
-                            <div className="flex w-6 shrink-0 flex-col items-center">
-                              <span className="flex size-6 items-center justify-center font-mono text-[11px] tabular-nums text-muted-foreground">
-                                {index + 1}
-                              </span>
-                              {!isLast && <span className="mt-1 w-px flex-1 bg-border/70" />}
-                            </div>
-                            <div className={cn('min-w-0 flex-1 pb-5', isLast && 'pb-0')}>
-                              <div className="flex items-start gap-2">
-                                <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium leading-none">{label}</p>
-                                  <p className="mt-1 text-[12px] text-muted-foreground">
-                                    {delayLabel(s.delayDays)}
-                                    {stepUsesTemplate(s.type) && (
-                                      <>
-                                        {' · '}
-                                        {templateStatus === 'complete' ? (
-                                          <span className="inline-flex items-center gap-1">
-                                            <FileTextIcon className="inline size-3" />
-                                            {stepUsesSubject(s.type)
-                                              ? 'Betreff + Text'
-                                              : 'Text'}
-                                          </span>
-                                        ) : templateStatus === 'partial' ? (
-                                          <span className="text-warning">
-                                            Vorlage unvollständig
-                                          </span>
-                                        ) : (
-                                          <span className="text-warning">keine Vorlage</span>
-                                        )}
-                                      </>
+              ) : (
+                <ol className="space-y-0">
+                  {selectedSteps.map((s, index) => {
+                    const Icon = stepIcon(s.type);
+                    const { label } = campaignStepMeta(s.type);
+                    const isLast = index === selectedSteps.length - 1;
+                    const templateStatus = stepTemplateStatus(
+                      s.type,
+                      s.subjectTemplate,
+                      s.bodyTemplate,
+                    );
+                    return (
+                      <li key={s.id} className="relative flex gap-3">
+                        <div className="flex w-6 shrink-0 flex-col items-center">
+                          <span className="flex size-6 items-center justify-center font-mono text-[11px] tabular-nums text-muted-foreground">
+                            {index + 1}
+                          </span>
+                          {!isLast && <span className="mt-1 w-px flex-1 bg-border/70" />}
+                        </div>
+                        <div className={cn('min-w-0 flex-1 pb-5', isLast && 'pb-0')}>
+                          <div className="flex items-start gap-2">
+                            <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium leading-none">{label}</p>
+                              <p className="mt-1 text-[12px] text-muted-foreground">
+                                {delayLabel(s.delayDays)}
+                                {stepUsesTemplate(s.type) && (
+                                  <>
+                                    {' · '}
+                                    {templateStatus === 'complete' ? (
+                                      <span className="inline-flex items-center gap-1">
+                                        <FileTextIcon className="inline size-3" />
+                                        {stepUsesSubject(s.type)
+                                          ? 'Betreff + Text'
+                                          : 'Text'}
+                                      </span>
+                                    ) : templateStatus === 'partial' ? (
+                                      <span className="text-warning">
+                                        Vorlage unvollständig
+                                      </span>
+                                    ) : (
+                                      <span className="text-warning">keine Vorlage</span>
                                     )}
-                                  </p>
-                                </div>
-                                <div className="flex shrink-0">
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className="size-7"
-                                    disabled={index === 0 || reordering}
-                                    onClick={() => moveStep(index, -1)}
-                                    aria-label="Nach oben"
-                                  >
-                                    <ChevronUpIcon className="size-3.5" />
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className="size-7"
-                                    disabled={isLast || reordering}
-                                    onClick={() => moveStep(index, 1)}
-                                    aria-label="Nach unten"
-                                  >
-                                    <ChevronDownIcon className="size-3.5" />
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="size-7"
-                                    onClick={() => openEditStep(s)}
-                                  >
-                                    <PencilIcon className="size-3.5" />
-                                  </Button>
-                                  <ConfirmDelete
-                                    label={`„${index + 1}. ${label}" löschen?`}
-                                    onConfirm={() => removeStep(s.id)}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="flex min-h-0 flex-1 flex-col">
-                {workLoading ? (
-                  <div className="flex flex-col gap-2 py-4">
-                    {[1, 2, 3].map((i) => (
-                      <Skeleton key={i} className="h-16 w-full" />
-                    ))}
-                  </div>
-                ) : workItems.length === 0 ? (
-                  <div className="flex h-full min-h-48 flex-col justify-center gap-2 py-6">
-                    <p className="text-sm text-muted-foreground">
-                      Keine offenen Leads in dieser Kampagne.
-                    </p>
-                    <p className="text-[12px] text-muted-foreground/80">
-                      Leads unter Zuordnungen hinzufügen.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="min-h-0 flex-1 overflow-y-auto py-3">
-                      {activeWork && (
-                        <div className="flex flex-col gap-4">
-                          <div>
-                            <p className="text-base font-semibold tracking-tight">
-                              {activeWork.company_name}
-                            </p>
-                            <p className="mt-1 text-[12px] text-muted-foreground">
-                              {[contactLabel(activeWork.contact), activeWork.city, activeWork.domain]
-                                .filter(Boolean)
-                                .join(' · ') || 'Kein Kontakt hinterlegt'}
-                            </p>
-                            {activeWork.current_step && (
-                              <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium">
-                                {(() => {
-                                  const Icon = stepIcon(activeWork.current_step.type);
-                                  return <Icon className="size-3.5 text-muted-foreground" />;
-                                })()}
-                                Schritt {activeWork.current_step.step_order}: {activeWork.current_step.label}
-                                {activeWork.current_step.delay_days > 0 && (
-                                  <span className="font-normal text-muted-foreground">
-                                    · {delayLabel(activeWork.current_step.delay_days)}
-                                  </span>
+                                  </>
                                 )}
                               </p>
-                            )}
+                            </div>
+                            <div className="flex shrink-0">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="size-7"
+                                disabled={index === 0 || reordering}
+                                onClick={() => moveStep(index, -1)}
+                                aria-label="Nach oben"
+                              >
+                                <ChevronUpIcon className="size-3.5" />
+                              </Button>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="size-7"
+                                disabled={isLast || reordering}
+                                onClick={() => moveStep(index, 1)}
+                                aria-label="Nach unten"
+                              >
+                                <ChevronDownIcon className="size-3.5" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="size-7"
+                                onClick={() => openEditStep(s)}
+                              >
+                                <PencilIcon className="size-3.5" />
+                              </Button>
+                              <ConfirmDelete
+                                label={`„${index + 1}. ${label}" löschen?`}
+                                onConfirm={() => removeStep(s.id)}
+                              />
+                            </div>
                           </div>
-
-                          {(activeWork.contact?.email || activeWork.contact?.phone) && (
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
-                              {activeWork.contact.email && (
-                                <span className="font-mono">{activeWork.contact.email}</span>
-                              )}
-                              {activeWork.contact.phone && (
-                                <span className="font-mono">{activeWork.contact.phone}</span>
-                              )}
-                            </div>
-                          )}
-
-                          {activeWork.current_step?.uses_template && (
-                            <div className="flex flex-col gap-3">
-                              {activeWork.rendered.subject ? (
-                                <div className="flex flex-col gap-1.5">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <Label className="text-[11px] text-muted-foreground">Betreff</Label>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-7 gap-1 px-2 text-xs"
-                                      onClick={() => handleCopy('subject', activeWork.rendered.subject)}
-                                    >
-                                      {copiedKey === 'subject' ? (
-                                        <CheckIcon className="size-3.5" />
-                                      ) : (
-                                        <CopyIcon className="size-3.5" />
-                                      )}
-                                      {copiedKey === 'subject' ? 'Kopiert' : 'Kopieren'}
-                                    </Button>
-                                  </div>
-                                  <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm">
-                                    {activeWork.rendered.subject}
-                                  </p>
-                                </div>
-                              ) : null}
-                              {activeWork.rendered.body ? (
-                                <div className="flex flex-col gap-1.5">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <Label className="text-[11px] text-muted-foreground">Text</Label>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-7 gap-1 px-2 text-xs"
-                                      onClick={() => handleCopy('body', activeWork.rendered.body)}
-                                    >
-                                      {copiedKey === 'body' ? (
-                                        <CheckIcon className="size-3.5" />
-                                      ) : (
-                                        <CopyIcon className="size-3.5" />
-                                      )}
-                                      {copiedKey === 'body' ? 'Kopiert' : 'Kopieren'}
-                                    </Button>
-                                  </div>
-                                  <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 px-3 py-2 font-sans text-sm leading-relaxed">
-                                    {activeWork.rendered.body}
-                                  </pre>
-                                </div>
-                              ) : null}
-                              {!activeWork.rendered.subject && !activeWork.rendered.body && (
-                                <p className="text-[12px] text-warning">
-                                  Keine Vorlage an diesem Schritt — trotzdem erledigen möglich.
-                                </p>
-                              )}
-                            </div>
-                          )}
                         </div>
-                      )}
-                    </div>
-
-                    <div className="shrink-0 space-y-3 border-t border-border/60 py-3">
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="success-solid"
-                          className="h-9 flex-1 gap-1.5"
-                          disabled={completing || !activeWork}
-                          onClick={() => completeWork('done')}
-                        >
-                          <CheckIcon className="size-3.5" />
-                          {completing ? '…' : 'Erledigt'}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9 gap-1.5"
-                          disabled={completing || !activeWork}
-                          onClick={() => completeWork('skipped')}
-                        >
-                          <SkipForwardIcon className="size-3.5" />
-                          Überspringen
-                        </Button>
-                      </div>
-
-                      {workItems.length > 1 && (
-                        <div className="max-h-36 overflow-y-auto">
-                          <p className="mb-1.5 text-[11px] font-medium tracking-wide text-muted-foreground">
-                            Warteschlange · {workItems.length}
-                          </p>
-                          <ul className="space-y-0.5">
-                            {workItems.map((item) => {
-                              const active = item.id === activeWork?.id;
-                              return (
-                                <li key={item.id}>
-                                  <button
-                                    type="button"
-                                    onClick={() => setWorkId(item.id)}
-                                    className={cn(
-                                      'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-[12px] transition-colors',
-                                      active
-                                        ? 'bg-muted font-medium'
-                                        : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-                                    )}
-                                  >
-                                    <span className="truncate">{item.company_name}</span>
-                                    <span className="shrink-0 font-mono text-[10px] tabular-nums">
-                                      {item.current_step?.step_order ?? '—'}
-                                    </span>
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </div>
           </>
         ) : (
           <div className={cn('hidden h-full items-center justify-center lg:flex', headerY)}>

@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeadsDb } from '@/lib/leads/db';
-import { campaign, campaignLead, campaignStep, lead, leadContact } from '@/lib/leads/schema';
+import {
+  campaign,
+  campaignLead,
+  campaignLeadAction,
+  campaignStep,
+  lead,
+  leadContact,
+  searchQueryTag,
+  tag,
+} from '@/lib/leads/schema';
 import { campaignStepMeta } from '@/lib/leads/campaign-steps';
 import { renderStepTemplates } from '@/lib/leads/template';
-import { and, asc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+
+const REGION_ORDER = ['Mittelfranken', 'Oberfranken', 'Unterfranken', 'Bayern'];
 
 /** Globale Inbox: offene Kampagnen-Leads über alle Kampagnen. */
 export async function GET(req: NextRequest) {
@@ -19,6 +30,7 @@ export async function GET(req: NextRequest) {
       campaign_id: campaignLead.campaignId,
       campaign_name: campaign.name,
       lead_id: campaignLead.leadId,
+      search_query_id: lead.searchQueryId,
       current_step_id: campaignLead.currentStepId,
       status: campaignLead.status,
       last_action_at: campaignLead.lastActionAt,
@@ -36,6 +48,13 @@ export async function GET(req: NextRequest) {
 
   const campaignIds = [...new Set(rows.map((r) => r.campaign_id))];
   const leadIds = rows.map((r) => r.lead_id);
+  const searchQueryIds = [
+    ...new Set(
+      rows
+        .map((r) => r.search_query_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  ];
 
   const steps = campaignIds.length
     ? await db
@@ -66,7 +85,29 @@ export async function GET(req: NextRequest) {
     if (!firstContactByLead.has(c.leadId)) firstContactByLead.set(c.leadId, c);
   }
 
+  const tagRows = searchQueryIds.length
+    ? await db
+        .select({
+          search_query_id: searchQueryTag.searchQueryId,
+          tag_id: tag.id,
+          tag_name: tag.name,
+        })
+        .from(searchQueryTag)
+        .innerJoin(tag, eq(tag.id, searchQueryTag.tagId))
+        .where(inArray(searchQueryTag.searchQueryId, searchQueryIds))
+    : [];
+
+  const tagsBySearch = new Map<string, { id: string; name: string }[]>();
+  const tagMeta = new Map<string, { id: string; name: string }>();
+  for (const row of tagRows) {
+    tagMeta.set(row.tag_id, { id: row.tag_id, name: row.tag_name });
+    const list = tagsBySearch.get(row.search_query_id) ?? [];
+    list.push({ id: row.tag_id, name: row.tag_name });
+    tagsBySearch.set(row.search_query_id, list);
+  }
+
   const campaignsMeta = new Map<string, { id: string; name: string; n: number }>();
+  const regionsMeta = new Map<string, { id: string; name: string; n: number }>();
 
   const items = rows.map((r) => {
     const campSteps = stepsByCampaign.get(r.campaign_id) ?? [];
@@ -74,6 +115,9 @@ export async function GET(req: NextRequest) {
     if (!step && campSteps.length) step = campSteps[0];
 
     const contact = firstContactByLead.get(r.lead_id) ?? null;
+    const tags = r.search_query_id
+      ? (tagsBySearch.get(r.search_query_id) ?? [])
+      : [];
     const rendered = step
       ? renderStepTemplates(
           step.subjectTemplate,
@@ -100,6 +144,12 @@ export async function GET(req: NextRequest) {
     if (prev) prev.n += 1;
     else campaignsMeta.set(r.campaign_id, { id: r.campaign_id, name: r.campaign_name, n: 1 });
 
+    for (const t of tags) {
+      const region = regionsMeta.get(t.id);
+      if (region) region.n += 1;
+      else regionsMeta.set(t.id, { id: t.id, name: t.name, n: 1 });
+    }
+
     return {
       id: r.id,
       campaign_id: r.campaign_id,
@@ -111,6 +161,7 @@ export async function GET(req: NextRequest) {
       company_name: r.company_name,
       city: r.city,
       domain: r.domain,
+      tag_ids: tags.map((t) => t.id),
       contact: contact
         ? {
             id: contact.id,
@@ -139,11 +190,30 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  const regions = [...regionsMeta.values()].sort((a, b) => {
+    const ai = REGION_ORDER.indexOf(a.name);
+    const bi = REGION_ORDER.indexOf(b.name);
+    const aRank = ai === -1 ? REGION_ORDER.length : ai;
+    const bRank = bi === -1 ? REGION_ORDER.length : bi;
+    if (aRank !== bRank) return aRank - bRank;
+    return a.name.localeCompare(b.name, 'de');
+  });
+
+  const [todayRow] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(campaignLeadAction)
+    .where(sql`${campaignLeadAction.actedAt} >= (
+      date_trunc('day', now() AT TIME ZONE 'Europe/Berlin')
+      AT TIME ZONE 'Europe/Berlin'
+    )`);
+
   return NextResponse.json({
     items,
     campaigns: [...campaignsMeta.values()].sort((a, b) => a.name.localeCompare(b.name, 'de')),
+    regions,
     meta: {
       total: items.length,
+      today_done: todayRow?.total ?? 0,
     },
   });
 }

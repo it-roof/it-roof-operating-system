@@ -1,12 +1,5 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { PageContainer } from '@/components/page-container';
-import { WorkInbox } from '@/components/leads/work-inbox';
-
-export default function LeadsInboxPage() {
-  return (
-    <PageContainer fill>
-      <WorkInbox />
-    </PageContainer>
-  );
+export default function LeadsInboxRedirectPage() {
+  redirect('/leads/abarbeiten');
 }

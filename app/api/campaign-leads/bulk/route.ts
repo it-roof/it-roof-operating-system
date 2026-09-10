@@ -9,12 +9,14 @@ function leadFilters(opts: {
   cities?: string[];
   industries?: string[];
   searchQueryIds?: string[];
+  status?: string;
   q?: string;
 }) {
   const filters: SQL[] = [];
   const cities = opts.cities ?? [];
   const industries = opts.industries ?? [];
   const searchQueryIds = opts.searchQueryIds ?? [];
+  if (opts.status && opts.status !== 'all') filters.push(eq(lead.status, opts.status));
   if (cities.length === 1) filters.push(eq(lead.city, cities[0]!));
   else if (cities.length > 1) filters.push(inArray(lead.city, cities));
   if (industries.length === 1) filters.push(eq(lead.industry, industries[0]!));
@@ -48,6 +50,10 @@ export async function POST(req: NextRequest) {
     const searchQueryIds = [
       ...parseListBody(body.search_query_ids ?? body.search_query_id ?? body.searchQueryIds),
     ];
+    const status =
+      typeof body.status === 'string' && body.status.trim()
+        ? body.status.trim()
+        : 'all';
     const q = typeof body.q === 'string' ? body.q.trim() : '';
     const rawIds = Array.isArray(body.lead_ids ?? body.leadIds)
       ? (body.lead_ids ?? body.leadIds)
@@ -61,10 +67,11 @@ export async function POST(req: NextRequest) {
       && cities.length === 0
       && industries.length === 0
       && searchQueryIds.length === 0
+      && status === 'all'
       && !q
     ) {
       return NextResponse.json(
-        { error: 'lead_ids oder Filter (city / industry / search_query_id / q) erforderlich' },
+        { error: 'lead_ids oder Filter (city / industry / search_query_id / status / q) erforderlich' },
         { status: 400 },
       );
     }
@@ -92,7 +99,7 @@ export async function POST(req: NextRequest) {
         .from(lead)
         .where(inArray(lead.id, leadIds));
     } else {
-      const filters = leadFilters({ cities, industries, searchQueryIds, q });
+      const filters = leadFilters({ cities, industries, searchQueryIds, status, q });
       if (existingIds.length) filters.push(notInArray(lead.id, existingIds));
 
       candidates = await db
@@ -146,17 +153,24 @@ export async function GET(req: NextRequest) {
     'search_query_id',
     'search_query_ids',
   ]);
+  const status = (req.nextUrl.searchParams.get('status') ?? 'all').trim() || 'all';
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim();
 
   if (!campaignId) {
     return NextResponse.json({ error: 'campaign_id erforderlich' }, { status: 400 });
   }
-  if (cities.length === 0 && industries.length === 0 && searchQueryIds.length === 0 && !q) {
+  if (
+    cities.length === 0
+    && industries.length === 0
+    && searchQueryIds.length === 0
+    && status === 'all'
+    && !q
+  ) {
     return NextResponse.json({ available: 0, match_total: 0, already_assigned: 0 });
   }
 
   const db = getLeadsDb();
-  const filters = leadFilters({ cities, industries, searchQueryIds, q });
+  const filters = leadFilters({ cities, industries, searchQueryIds, status, q });
   const where = and(...filters);
 
   const existing = await db
@@ -187,11 +201,21 @@ export async function GET(req: NextRequest) {
   });
 }
 
-/** Zuordnungen aufheben: campaign_id + lead_ids */
+/** Zuordnungen aufheben: campaign_id + lead_ids oder dieselben Filter wie Zuordnen */
 export async function DELETE(req: NextRequest) {
   try {
     const body = await req.json();
     const campaignId = requireString(body.campaign_id ?? body.campaignId, 'campaign_id');
+    const cities = [...parseListBody(body.cities ?? body.city)];
+    const industries = [...parseListBody(body.industries ?? body.industry)];
+    const searchQueryIds = [
+      ...parseListBody(body.search_query_ids ?? body.search_query_id ?? body.searchQueryIds),
+    ];
+    const status =
+      typeof body.status === 'string' && body.status.trim()
+        ? body.status.trim()
+        : 'all';
+    const q = typeof body.q === 'string' ? body.q.trim() : '';
     const rawIds = Array.isArray(body.lead_ids ?? body.leadIds)
       ? (body.lead_ids ?? body.leadIds)
       : [];
@@ -199,18 +223,43 @@ export async function DELETE(req: NextRequest) {
       .filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
       .map((id: string) => id.trim());
 
-    if (leadIds.length === 0) {
-      return NextResponse.json({ error: 'lead_ids erforderlich' }, { status: 400 });
+    const hasFilter =
+      cities.length > 0
+      || industries.length > 0
+      || searchQueryIds.length > 0
+      || status !== 'all'
+      || !!q;
+
+    if (leadIds.length === 0 && !hasFilter) {
+      return NextResponse.json(
+        { error: 'lead_ids oder Filter (city / industry / search_query_id / status / q) erforderlich' },
+        { status: 400 },
+      );
     }
 
     const db = getLeadsDb();
+
+    let targetLeadIds = leadIds;
+    if (leadIds.length === 0) {
+      const filters = leadFilters({ cities, industries, searchQueryIds, status, q });
+      const matched = await db
+        .select({ id: lead.id })
+        .from(lead)
+        .where(and(...filters));
+      targetLeadIds = matched.map((r) => r.id);
+    }
+
+    if (targetLeadIds.length === 0) {
+      return NextResponse.json({ ok: true, removed: 0 });
+    }
+
     const rows = await db
       .select({ id: campaignLead.id })
       .from(campaignLead)
       .where(
         and(
           eq(campaignLead.campaignId, campaignId),
-          inArray(campaignLead.leadId, leadIds),
+          inArray(campaignLead.leadId, targetLeadIds),
         ),
       );
 

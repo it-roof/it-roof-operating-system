@@ -3,9 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getAreaForPath, isLinkActive } from '@/lib/nav';
+import { logoutAction } from '@/app/actions/auth';
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -15,6 +17,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
+import { LogOutIcon } from 'lucide-react';
 
 export function AppSidebar() {
   const path = usePathname();
@@ -61,6 +64,23 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
+      <SidebarFooter className="border-t border-sidebar-border p-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <form action={logoutAction}>
+              <SidebarMenuButton
+                type="submit"
+                tooltip="Abmelden"
+                className="w-full font-mono text-[12px] tracking-wide"
+              >
+                <LogOutIcon />
+                <span>Abmelden</span>
+              </SidebarMenuButton>
+            </form>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>

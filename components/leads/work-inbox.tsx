@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -36,6 +37,7 @@ type InboxItem = {
   company_name: string;
   city: string | null;
   domain: string | null;
+  tag_ids: string[];
   contact: {
     id: string;
     salutation: string | null;
@@ -60,6 +62,7 @@ type InboxItem = {
 };
 
 type CampaignFacet = { id: string; name: string; n: number };
+type RegionFacet = { id: string; name: string; n: number };
 
 const STEP_ICONS: Record<string, LucideIcon> = {
   email: MailIcon,
@@ -101,6 +104,48 @@ async function copyText(text: string) {
   }
 }
 
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Klartext + HTML: nur die beiden IT-ROOF-Pfade als klickbare Links für Outlook. */
+function bodyToOutlookHtml(text: string) {
+  let html = escapeHtml(text);
+  html = html.replace(
+    /(?:https?:\/\/)?(?:www\.)?it-roof\.com\/it-betreuung\/?/gi,
+    '<a href="https://it-roof.com/it-betreuung">it-roof.com/it-betreuung</a>',
+  );
+  html = html.replace(
+    /(?:https?:\/\/)?(?:www\.)?it-roof\.com\/termin\/?/gi,
+    '<a href="https://it-roof.com/termin">it-roof.com/termin</a>',
+  );
+  html = html.replace(/\r\n|\r|\n/g, '<br>');
+  return `<div>${html}</div>`;
+}
+
+async function copyBodyForOutlook(text: string) {
+  if (!text) return false;
+  const html = bodyToOutlookHtml(text);
+  try {
+    if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+          'text/html': new Blob([html], { type: 'text/html' }),
+        }),
+      ]);
+      return true;
+    }
+  } catch {
+    // Fallback unten
+  }
+  return copyText(text);
+}
+
 const leftPad = splitLeftPad;
 const leftPadEnd = splitLeftPadEnd;
 const midPad = splitMidPad;
@@ -108,10 +153,15 @@ const rightPad = splitRightPad;
 const headerY = splitHeaderY;
 
 export function WorkInbox() {
+  const searchParams = useSearchParams();
+  const campaignFromUrl = (searchParams.get('campaign') ?? '').trim();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignFacet[]>([]);
+  const [regions, setRegions] = useState<RegionFacet[]>([]);
   const [loading, setLoading] = useState(true);
-  const [campaignFilter, setCampaignFilter] = useState<string>('all');
+  const [todayDone, setTodayDone] = useState(0);
+  const [campaignFilter, setCampaignFilter] = useState<string>(campaignFromUrl || 'all');
+  const [regionFilter, setRegionFilter] = useState<string>('all');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -127,7 +177,10 @@ export function WorkInbox() {
     const campsData = await campsRes.json();
     if (signal?.aborted) return;
 
-    const next: InboxItem[] = inboxData.items ?? [];
+    const next: InboxItem[] = (inboxData.items ?? []).map((item: InboxItem) => ({
+      ...item,
+      tag_ids: item.tag_ids ?? [],
+    }));
     const counts = new Map<string, number>(
       ((inboxData.campaigns ?? []) as CampaignFacet[]).map((c) => [c.id, c.n]),
     );
@@ -139,7 +192,6 @@ export function WorkInbox() {
       name: c.name,
       n: counts.get(c.id) ?? 0,
     }));
-    // Kampagnen mit offenen Tasks zuerst, dann Name
     allCampaigns.sort((a, b) => {
       if (b.n !== a.n) return b.n - a.n;
       return a.name.localeCompare(b.name, 'de');
@@ -147,6 +199,8 @@ export function WorkInbox() {
 
     setItems(next);
     setCampaigns(allCampaigns);
+    setRegions((inboxData.regions ?? []) as RegionFacet[]);
+    setTodayDone(inboxData.meta?.today_done ?? 0);
     setActiveId((prev) => (prev && next.some((i) => i.id === prev) ? prev : next[0]?.id ?? null));
     setLoading(false);
   }, []);
@@ -157,10 +211,62 @@ export function WorkInbox() {
     return () => ctrl.abort();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    if (campaignFilter === 'all') return items;
-    return items.filter((i) => i.campaign_id === campaignFilter);
-  }, [items, campaignFilter]);
+  useEffect(() => {
+    if (campaignFromUrl) setCampaignFilter(campaignFromUrl);
+  }, [campaignFromUrl]);
+
+  const matchesRegion = useCallback((item: InboxItem, region: string) => {
+    if (region === 'all') return true;
+    return (item.tag_ids ?? []).includes(region);
+  }, []);
+
+  const matchesCampaign = useCallback((item: InboxItem, campaign: string) => {
+    if (campaign === 'all') return true;
+    return item.campaign_id === campaign;
+  }, []);
+
+  const campaignFacets = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      if (!matchesRegion(item, regionFilter)) continue;
+      counts.set(item.campaign_id, (counts.get(item.campaign_id) ?? 0) + 1);
+    }
+    return campaigns.map((c) => ({
+      ...c,
+      n: counts.get(c.id) ?? 0,
+    }));
+  }, [items, campaigns, regionFilter, matchesRegion]);
+
+  const regionFacets = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      if (!matchesCampaign(item, campaignFilter)) continue;
+      for (const tagId of item.tag_ids ?? []) {
+        counts.set(tagId, (counts.get(tagId) ?? 0) + 1);
+      }
+    }
+    return regions.map((r) => ({
+      ...r,
+      n: counts.get(r.id) ?? 0,
+    }));
+  }, [items, regions, campaignFilter, matchesCampaign]);
+
+  const filtered = useMemo(
+    () => items.filter(
+      (i) => matchesCampaign(i, campaignFilter) && matchesRegion(i, regionFilter),
+    ),
+    [items, campaignFilter, regionFilter, matchesCampaign, matchesRegion],
+  );
+
+  const filteredTotalForCampaign = useMemo(
+    () => items.filter((i) => matchesRegion(i, regionFilter)).length,
+    [items, regionFilter, matchesRegion],
+  );
+
+  const filteredTotalForRegion = useMemo(
+    () => items.filter((i) => matchesCampaign(i, campaignFilter)).length,
+    [items, campaignFilter, matchesCampaign],
+  );
 
   useEffect(() => {
     if (filtered.length === 0) {
@@ -183,7 +289,9 @@ export function WorkInbox() {
   }
 
   async function handleCopy(key: string, text: string) {
-    const ok = await copyText(text);
+    const ok = key === 'body'
+      ? await copyBodyForOutlook(text)
+      : await copyText(text);
     if (!ok) return;
     setCopiedKey(key);
     window.setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1200);
@@ -200,16 +308,18 @@ export function WorkInbox() {
     setCompleting(false);
     if (!res.ok) return;
     const data = await res.json();
+    setTodayDone((n) => n + 1);
     if (data.finished) {
       const doneId = active.id;
       const doneCampaign = active.campaign_id;
-      const filterId = campaignFilter;
       setItems((prev) => {
         const next = prev.filter((i) => i.id !== doneId);
-        const nextVisible =
-          filterId === 'all' ? next : next.filter((i) => i.campaign_id === filterId);
-        const prevVisible =
-          filterId === 'all' ? prev : prev.filter((i) => i.campaign_id === filterId);
+        const nextVisible = next.filter(
+          (i) => matchesCampaign(i, campaignFilter) && matchesRegion(i, regionFilter),
+        );
+        const prevVisible = prev.filter(
+          (i) => matchesCampaign(i, campaignFilter) && matchesRegion(i, regionFilter),
+        );
         const idx = prevVisible.findIndex((i) => i.id === doneId);
         const fallback = nextVisible[idx] ?? nextVisible[idx - 1] ?? nextVisible[0] ?? null;
         setActiveId(fallback?.id ?? null);
@@ -228,7 +338,7 @@ export function WorkInbox() {
 
   return (
     <div className="flex h-full min-h-0">
-      {/* 1 · Kampagnen-Filter */}
+      {/* 1 · Filter */}
       <aside
         className={cn(
           'hidden w-64 shrink-0 flex-col border-r border-border/60 lg:flex xl:w-72',
@@ -237,61 +347,116 @@ export function WorkInbox() {
         )}
       >
         <div className={cn('shrink-0', headerY)}>
-          <h1 className="text-2xl font-bold tracking-tight">Inbox</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Abarbeiten</h1>
           <p className="mt-1 font-mono text-xs tracking-wide text-muted-foreground">
-            {loading ? '…' : `${items.length} offen`}
+            {loading
+              ? '…'
+              : `${items.length} offen · ${todayDone} heute`}
           </p>
         </div>
-        <p className="mb-1.5 shrink-0 font-mono text-[10px] tracking-wide text-muted-foreground">
-          Kampagne
-        </p>
-        <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-6">
-          <button
-            type="button"
-            onClick={() => {
-              setCampaignFilter('all');
-              setShowMobileDetail(false);
-            }}
-            className={cn(
-              '-mx-2 flex w-[calc(100%+1rem)] items-center justify-between rounded-md px-2 py-2 text-left text-[12px] font-medium transition-colors',
-              campaignFilter === 'all'
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-            )}
-          >
-            <span>Alle</span>
-            <span className="font-mono tabular-nums opacity-70">{items.length}</span>
-          </button>
-          {campaigns.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => {
-                setCampaignFilter(c.id);
-                setShowMobileDetail(false);
-              }}
-              className={cn(
-                '-mx-2 flex w-[calc(100%+1rem)] items-start justify-between gap-3 rounded-md px-2 py-2 text-left text-[12px] font-medium transition-colors',
-                campaignFilter === c.id
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-              )}
-            >
-              <span className="min-w-0 flex-1 text-pretty break-words leading-snug">
-                {c.name}
-              </span>
-              <span className="shrink-0 pt-0.5 font-mono tabular-nums opacity-70">{c.n}</span>
-            </button>
-          ))}
-          {!loading && campaigns.length === 0 && (
-            <p className="py-2 text-[12px] text-muted-foreground">
-              Noch keine Kampagnen.
+
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          <div>
+            <p className="mb-1.5 font-mono text-[10px] tracking-wide text-muted-foreground">
+              Kampagne
             </p>
-          )}
-        </nav>
+            <nav className="space-y-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setCampaignFilter('all');
+                  setShowMobileDetail(false);
+                }}
+                className={cn(
+                  '-mx-2 flex w-[calc(100%+1rem)] items-center justify-between rounded-md px-2 py-2 text-left text-[12px] font-medium transition-colors',
+                  campaignFilter === 'all'
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                )}
+              >
+                <span>Alle</span>
+                <span className="font-mono tabular-nums opacity-70">{filteredTotalForCampaign}</span>
+              </button>
+              {campaignFacets.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setCampaignFilter(c.id);
+                    setShowMobileDetail(false);
+                  }}
+                  className={cn(
+                    '-mx-2 flex w-[calc(100%+1rem)] items-start justify-between gap-3 rounded-md px-2 py-2 text-left text-[12px] font-medium transition-colors',
+                    campaignFilter === c.id
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                  )}
+                >
+                  <span className="min-w-0 flex-1 text-pretty break-words leading-snug">
+                    {c.name}
+                  </span>
+                  <span className="shrink-0 pt-0.5 font-mono tabular-nums opacity-70">{c.n}</span>
+                </button>
+              ))}
+              {!loading && campaigns.length === 0 && (
+                <p className="py-2 text-[12px] text-muted-foreground">
+                  Noch keine Kampagnen.
+                </p>
+              )}
+            </nav>
+          </div>
+
+          <div>
+            <p className="mb-1.5 font-mono text-[10px] tracking-wide text-muted-foreground">
+              Region
+            </p>
+            <nav className="space-y-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setRegionFilter('all');
+                  setShowMobileDetail(false);
+                }}
+                className={cn(
+                  '-mx-2 flex w-[calc(100%+1rem)] items-center justify-between rounded-md px-2 py-2 text-left text-[12px] font-medium transition-colors',
+                  regionFilter === 'all'
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                )}
+              >
+                <span>Alle</span>
+                <span className="font-mono tabular-nums opacity-70">{filteredTotalForRegion}</span>
+              </button>
+              {regionFacets.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => {
+                    setRegionFilter(r.id);
+                    setShowMobileDetail(false);
+                  }}
+                  className={cn(
+                    '-mx-2 flex w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-[12px] font-medium transition-colors',
+                    regionFilter === r.id
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                  )}
+                >
+                  <span className="min-w-0 truncate">{r.name}</span>
+                  <span className="shrink-0 font-mono tabular-nums opacity-70">{r.n}</span>
+                </button>
+              ))}
+              {!loading && regionFacets.length === 0 && (
+                <p className="py-2 text-[12px] text-muted-foreground">
+                  Keine Regionen.
+                </p>
+              )}
+            </nav>
+          </div>
+        </div>
       </aside>
 
-      {/* 2 · Einfache Liste */}
+      {/* 2 · Aufgabenliste */}
       <div
         className={cn(
           'flex w-full min-h-0 min-w-0 flex-col border-r border-border/60 lg:w-80 lg:shrink-0 xl:w-96',
@@ -301,48 +466,83 @@ export function WorkInbox() {
       >
         <header className={cn('flex shrink-0 flex-col gap-3 lg:hidden', headerY)}>
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight">Inbox</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Abarbeiten</h1>
             <p className="mt-1 font-mono text-xs tracking-wide text-muted-foreground">
-              {loading ? '…' : `${filtered.length} offen`}
+              {loading
+                ? '…'
+                : `${filtered.length} offen · ${todayDone} heute`}
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setCampaignFilter('all');
-              }}
-              className={cn(
-                'rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors',
-                campaignFilter === 'all'
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border text-muted-foreground hover:text-foreground',
-              )}
-            >
-              Alle · {items.length}
-            </button>
-            {campaigns.map((c) => (
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1.5">
               <button
-                key={c.id}
                 type="button"
-                onClick={() => {
-                  setCampaignFilter(c.id);
-                }}
+                onClick={() => setCampaignFilter('all')}
                 className={cn(
                   'rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors',
-                  campaignFilter === c.id
+                  campaignFilter === 'all'
                     ? 'border-primary bg-primary text-primary-foreground'
                     : 'border-border text-muted-foreground hover:text-foreground',
                 )}
               >
-                {c.name} · {c.n}
+                Alle · {filteredTotalForCampaign}
               </button>
-            ))}
+              {campaignFacets.filter((c) => c.n > 0 || campaignFilter === c.id).map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setCampaignFilter(c.id)}
+                  className={cn(
+                    'rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors',
+                    campaignFilter === c.id
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {c.name} · {c.n}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setRegionFilter('all')}
+                className={cn(
+                  'rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors',
+                  regionFilter === 'all'
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border text-muted-foreground hover:text-foreground',
+                )}
+              >
+                Alle Regionen · {filteredTotalForRegion}
+              </button>
+              {regionFacets.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setRegionFilter(r.id)}
+                  className={cn(
+                    'rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors',
+                    regionFilter === r.id
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {r.name} · {r.n}
+                </button>
+              ))}
+            </div>
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pt-6 pb-6 [scrollbar-width:none] [-ms-overflow-style:none] lg:pt-6 [&::-webkit-scrollbar]:hidden">
+        <div className="hidden shrink-0 border-b border-border/60 py-3 lg:block">
+          <p className="font-mono text-xs tracking-wide text-muted-foreground">
+            {loading ? '…' : `${filtered.length} Aufgabe${filtered.length !== 1 ? 'n' : ''}`}
+          </p>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto pt-3 pb-6 [scrollbar-width:none] [-ms-overflow-style:none] lg:pt-3 [&::-webkit-scrollbar]:hidden">
           {loading ? (
             <div className="flex flex-col gap-1">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
@@ -379,7 +579,7 @@ export function WorkInbox() {
                           {item.company_name}
                         </span>
                         <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                          {contact ?? 'Kein Kontakt'}
+                          {[contact, item.city].filter(Boolean).join(' · ') || 'Kein Kontakt'}
                         </span>
                       </span>
                       <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
@@ -457,12 +657,42 @@ export function WorkInbox() {
 
               <div className="space-y-5 py-5">
                 {(active.contact?.email || active.contact?.phone) && (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
+                  <div className="flex flex-col gap-2">
                     {active.contact.email && (
-                      <span className="font-mono">{active.contact.email}</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleCopy('email', active.contact!.email!)}
+                          className={cn(
+                            'min-w-0 flex-1 rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 text-left transition-colors hover:bg-muted/50',
+                            copiedKey === 'email' && 'ring-1 ring-foreground/20',
+                          )}
+                          title="E-Mail kopieren"
+                        >
+                          <span className="block truncate font-mono text-[12px]">
+                            {active.contact.email}
+                          </span>
+                        </button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-9 shrink-0 gap-1 px-2 text-xs"
+                          onClick={() => handleCopy('email', active.contact!.email!)}
+                        >
+                          {copiedKey === 'email' ? (
+                            <CheckIcon className="size-3.5" />
+                          ) : (
+                            <CopyIcon className="size-3.5" />
+                          )}
+                          {copiedKey === 'email' ? 'Kopiert' : 'Kopieren'}
+                        </Button>
+                      </div>
                     )}
                     {active.contact.phone && (
-                      <span className="font-mono">{active.contact.phone}</span>
+                      <span className="px-0.5 font-mono text-[12px] text-muted-foreground">
+                        {active.contact.phone}
+                      </span>
                     )}
                   </div>
                 )}
@@ -488,9 +718,17 @@ export function WorkInbox() {
                             {copiedKey === 'subject' ? 'Kopiert' : 'Kopieren'}
                           </Button>
                         </div>
-                        <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 text-sm">
+                        <button
+                          type="button"
+                          onClick={() => handleCopy('subject', active.rendered.subject)}
+                          className={cn(
+                            'w-full rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50',
+                            copiedKey === 'subject' && 'ring-1 ring-foreground/20',
+                          )}
+                          title="Betreff kopieren"
+                        >
                           {active.rendered.subject}
-                        </p>
+                        </button>
                       </div>
                     ) : null}
                     {active.rendered.body ? (
@@ -512,9 +750,17 @@ export function WorkInbox() {
                             {copiedKey === 'body' ? 'Kopiert' : 'Kopieren'}
                           </Button>
                         </div>
-                        <pre className="whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 font-sans text-sm leading-relaxed">
+                        <button
+                          type="button"
+                          onClick={() => handleCopy('body', active.rendered.body)}
+                          className={cn(
+                            'w-full whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 text-left font-sans text-sm leading-relaxed transition-colors hover:bg-muted/50',
+                            copiedKey === 'body' && 'ring-1 ring-foreground/20',
+                          )}
+                          title="Text kopieren"
+                        >
                           {active.rendered.body}
-                        </pre>
+                        </button>
                       </div>
                     ) : null}
                     {!active.rendered.subject && !active.rendered.body && (
