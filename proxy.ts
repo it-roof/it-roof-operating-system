@@ -1,15 +1,28 @@
 import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import authConfig from '@/auth.config';
 
 const { auth } = NextAuth(authConfig);
 
-export const proxy = auth((request) => {
+const NO_INDEX =
+  'noindex, nofollow, noarchive, nosnippet, noimageindex, notranslate';
+
+function withNoIndex(response: NextResponse) {
+  response.headers.set('X-Robots-Tag', NO_INDEX);
+  return response;
+}
+
+function nextWithNoIndex() {
+  return withNoIndex(NextResponse.next());
+}
+
+export const proxy = auth((request: NextRequest & { auth: unknown }) => {
   const { pathname } = request.nextUrl;
   const isLoggedIn = !!request.auth;
 
   if (pathname.startsWith('/api/auth')) {
-    return NextResponse.next();
+    return nextWithNoIndex();
   }
 
   const isLogin = pathname === '/login' || pathname.startsWith('/login/');
@@ -21,27 +34,29 @@ export const proxy = auth((request) => {
     || /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|woff2?)$/i.test(pathname);
 
   if (isAsset) {
-    return NextResponse.next();
+    return nextWithNoIndex();
   }
 
   if (isLogin) {
     if (isLoggedIn) {
-      return NextResponse.redirect(new URL('/', request.url));
+      return withNoIndex(NextResponse.redirect(new URL('/', request.url)));
     }
-    return NextResponse.next();
+    return nextWithNoIndex();
   }
 
   if (!isLoggedIn) {
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json({ error: 'Nicht angemeldet' }, { status: 401 });
+      return withNoIndex(
+        NextResponse.json({ error: 'Nicht angemeldet' }, { status: 401 }),
+      );
     }
     const login = new URL('/login', request.url);
     const next = `${pathname}${request.nextUrl.search}`;
     if (next && next !== '/') login.searchParams.set('next', next);
-    return NextResponse.redirect(login);
+    return withNoIndex(NextResponse.redirect(login));
   }
 
-  return NextResponse.next();
+  return nextWithNoIndex();
 });
 
 export const config = {
