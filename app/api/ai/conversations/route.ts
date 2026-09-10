@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { aiConversation, aiProvider } from '@/lib/schema';
 import { desc, eq, sql } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET() {
+  if (!(await requireSession())) return unauthorized();
   const rows = await db
     .select({
       id: aiConversation.id,
@@ -27,6 +29,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const body = await req.json().catch(() => ({}));
   const providerId = body.provider_id ?? null;
 

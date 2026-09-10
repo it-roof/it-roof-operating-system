@@ -5,6 +5,7 @@ import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { pageMeta, pageOffset, parseLimit, parsePage } from '@/lib/leads/pagination';
 import { and, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { parseListParam } from '@/lib/leads/filter-params';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 function searchFilter(q: string) {
   const pattern = `%${q}%`;
@@ -53,6 +54,7 @@ function notInCampaign(campaignId: string) {
 }
 
 export async function GET(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim();
   const status = req.nextUrl.searchParams.get('status') ?? 'all';
   const cities = parseListParam(req.nextUrl.searchParams, ['city', 'cities']);
@@ -233,6 +235,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   try {
     const body = await req.json();
     const companyName = requireString(body.company_name ?? body.companyName, 'company_name');

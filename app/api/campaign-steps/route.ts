@@ -4,8 +4,10 @@ import { campaignStep } from '@/lib/leads/schema';
 import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { isCampaignStepType } from '@/lib/leads/campaign-steps';
 import { asc, eq } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const campaignId = req.nextUrl.searchParams.get('campaign_id');
   const db = getLeadsDb();
 
@@ -19,6 +21,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   try {
     const body = await req.json();
     const campaignId = requireString(body.campaign_id ?? body.campaignId, 'campaign_id');

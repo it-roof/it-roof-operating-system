@@ -10,10 +10,12 @@ import {
 import { nowIso } from '@/lib/leads/http';
 import { renderStepTemplates } from '@/lib/leads/template';
 import { asc, eq } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const action = (body.action ?? 'done').trim() === 'skipped' ? 'skipped' : 'done';

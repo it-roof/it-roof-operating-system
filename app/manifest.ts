@@ -2,9 +2,9 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Pinguine OS',
-    short_name: 'Pinguine OS',
-    description: 'IT ROOF Operating System',
+    name: 'App',
+    short_name: 'App',
+    description: 'App',
     start_url: '/',
     display: 'standalone',
     background_color: '#ffffff',

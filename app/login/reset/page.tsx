@@ -1,23 +1,19 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
-import { LoginForm } from '@/components/login-form';
+import { ResetPasswordForm } from '@/components/reset-password-form';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export const metadata: Metadata = {
   title: 'Login',
   description: 'Login',
-  robots: {
-    index: false,
-    follow: false,
-    nocache: true,
-  },
+  robots: { index: false, follow: false, nocache: true },
 };
 
-export default function LoginPage() {
+export default function ResetPasswordPage() {
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-background px-4">
-      <Suspense fallback={<Skeleton className="h-40 w-full max-w-sm rounded-lg" />}>
-        <LoginForm />
+      <Suspense fallback={<Skeleton className="h-48 w-full max-w-sm rounded-lg" />}>
+        <ResetPasswordForm />
       </Suspense>
     </div>
   );

@@ -4,10 +4,13 @@ import { campaignLead, campaignStep } from '@/lib/leads/schema';
 import { emptyToNull, requireString } from '@/lib/leads/http';
 import { isCampaignStepType } from '@/lib/leads/campaign-steps';
 import { eq } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
+import { writeAudit } from '@/lib/auth/audit';
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const db = getLeadsDb();
   const [row] = await db.select().from(campaignStep).where(eq(campaignStep.id, id));
@@ -16,6 +19,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const body = await req.json();
   const updates: Partial<typeof campaignStep.$inferInsert> = {};
@@ -62,10 +66,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const db = getLeadsDb();
   await db.update(campaignLead).set({ currentStepId: null }).where(eq(campaignLead.currentStepId, id));
   const [row] = await db.delete(campaignStep).where(eq(campaignStep.id, id)).returning({ id: campaignStep.id });
   if (!row) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
+  await writeAudit({ action: 'campaign_step.delete', resource: 'campaign_step', resourceId: id });
   return NextResponse.json({ ok: true });
 }

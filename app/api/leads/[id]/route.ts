@@ -3,10 +3,13 @@ import { getLeadsDb } from '@/lib/leads/db';
 import { lead, leadContact } from '@/lib/leads/schema';
 import { emptyToNull } from '@/lib/leads/http';
 import { eq, sql } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
+import { writeAudit } from '@/lib/auth/audit';
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const db = getLeadsDb();
 
@@ -58,6 +61,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const body = await req.json();
   const updates: Partial<typeof lead.$inferInsert> = {};
@@ -88,9 +92,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const db = getLeadsDb();
   const [row] = await db.delete(lead).where(eq(lead.id, id)).returning({ id: lead.id });
   if (!row) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
+  await writeAudit({ action: 'lead.delete', resource: 'lead', resourceId: id });
   return NextResponse.json({ ok: true });
 }

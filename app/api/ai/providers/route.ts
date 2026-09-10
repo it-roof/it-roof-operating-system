@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { aiProvider } from '@/lib/schema';
 import { desc } from 'drizzle-orm';
 import { maskApiKey } from '@/lib/ai';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 function toPublic(row: typeof aiProvider.$inferSelect) {
   return {
@@ -18,11 +19,13 @@ function toPublic(row: typeof aiProvider.$inferSelect) {
 }
 
 export async function GET() {
+  if (!(await requireSession())) return unauthorized();
   const rows = await db.select().from(aiProvider).orderBy(desc(aiProvider.createdAt));
   return NextResponse.json(rows.map(toPublic));
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const { name, base_url, api_key, model, enabled } = await req.json();
   if (!name?.trim() || !base_url?.trim() || !model?.trim()) {
     return NextResponse.json({ error: 'Name, Base-URL und Modell sind Pflicht.' }, { status: 400 });

@@ -7,11 +7,13 @@ import { finalKindFor, type StudioJobKind } from '@/lib/studio/kinds';
 import { estimatedCents, studioReady, studioMissingConfig, budgetCents } from '@/lib/studio/config';
 import { monthCommittedCents } from '@/lib/studio/budget';
 import { processJob } from '@/lib/studio/process';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const asset = await db.query.studioAsset.findFirst({
     where: eq(studioAsset.id, id),

@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { task } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
+import { writeAudit } from '@/lib/auth/audit';
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const body = await req.json();
   const { status, title, time_estimate_minutes } = body;
@@ -30,7 +33,9 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   await db.delete(task).where(eq(task.id, id));
+  await writeAudit({ action: 'task.delete', resource: 'task', resourceId: id });
   return NextResponse.json({ ok: true });
 }

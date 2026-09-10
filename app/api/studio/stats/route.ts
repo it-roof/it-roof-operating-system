@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import { budgetCents, estimatedCents, studioConfig, studioMissingConfig, studioReady } from '@/lib/studio/config';
 import { monthCommittedCents } from '@/lib/studio/budget';
 import { STUDIO_JOB_KINDS, STUDIO_KIND_META } from '@/lib/studio/kinds';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET() {
+  if (!(await requireSession())) return unauthorized();
   const spentCents = await monthCommittedCents();
   const kinds = Object.fromEntries(
     STUDIO_JOB_KINDS.map((kind) => [

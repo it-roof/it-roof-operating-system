@@ -4,11 +4,13 @@ import { db } from '@/lib/db';
 import { studioJob } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import { processJob } from '@/lib/studio/process';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const row = await db.query.studioJob.findFirst({
     where: eq(studioJob.id, id),
@@ -22,6 +24,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const body = await req.json();
   if (body.action === 'retry') {

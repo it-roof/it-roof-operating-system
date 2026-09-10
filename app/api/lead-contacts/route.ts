@@ -4,8 +4,10 @@ import { leadContact } from '@/lib/leads/schema';
 import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { pageMeta, pageOffset, parseLimit, parsePage } from '@/lib/leads/pagination';
 import { and, eq, ilike, or, desc, sql } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const leadId = req.nextUrl.searchParams.get('lead_id');
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim();
   const page = parsePage(req.nextUrl.searchParams.get('page'));
@@ -51,6 +53,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   try {
     const body = await req.json();
     const leadId = requireString(body.lead_id ?? body.leadId, 'lead_id');

@@ -3,8 +3,10 @@ import { getLeadsDb } from '@/lib/leads/db';
 import { campaign, campaignLead, campaignStep } from '@/lib/leads/schema';
 import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { desc, eq, ilike, sql } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim();
   const db = getLeadsDb();
 
@@ -30,6 +32,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   try {
     const body = await req.json();
     const name = requireString(body.name, 'name');

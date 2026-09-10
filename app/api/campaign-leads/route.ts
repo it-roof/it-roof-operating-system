@@ -4,8 +4,10 @@ import { campaignLead, campaignStep, lead, campaign } from '@/lib/leads/schema';
 import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { pageMeta, pageOffset, parseLimit, parsePage } from '@/lib/leads/pagination';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const campaignId = req.nextUrl.searchParams.get('campaign_id');
   const leadId = req.nextUrl.searchParams.get('lead_id');
   const status = req.nextUrl.searchParams.get('status');
@@ -70,6 +72,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   try {
     const body = await req.json();
     const campaignId = requireString(body.campaign_id ?? body.campaignId, 'campaign_id');

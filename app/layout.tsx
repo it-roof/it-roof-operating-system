@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Pinguine OS',
-  description: 'IT ROOF Operating System',
+  title: 'App',
+  description: 'App',
   robots: {
     index: false,
     follow: false,

@@ -8,8 +8,10 @@ import {
   searchQuery,
 } from '@/lib/leads/schema';
 import { desc, eq, sql } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET() {
+  if (!(await requireSession())) return unauthorized();
   const db = getLeadsDb();
 
   const [

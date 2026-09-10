@@ -13,8 +13,10 @@ import {
 } from '@/lib/studio/config';
 import { monthCommittedCents } from '@/lib/studio/budget';
 import { processJob, processQueuedJobs } from '@/lib/studio/process';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET() {
+  if (!(await requireSession())) return unauthorized();
   const rows = await db.query.studioJob.findMany({
     orderBy: [desc(studioJob.createdAt)],
     limit: 80,
@@ -24,6 +26,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const body = await req.json();
   const kind = body.kind as StudioJobKind;
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';

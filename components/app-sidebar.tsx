@@ -17,7 +17,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
-import { LogOutIcon } from 'lucide-react';
+import { LogOutIcon, ShieldIcon } from 'lucide-react';
 
 export function AppSidebar() {
   const path = usePathname();
@@ -67,6 +67,19 @@ export function AppSidebar() {
 
       <SidebarFooter className="border-t border-sidebar-border p-2">
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={path.startsWith('/einstellungen')}
+              tooltip="Sicherheit"
+              className="font-mono text-[12px] tracking-wide"
+            >
+              <Link href="/einstellungen/sicherheit">
+                <ShieldIcon />
+                <span>Sicherheit</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <form action={logoutAction}>
               <SidebarMenuButton

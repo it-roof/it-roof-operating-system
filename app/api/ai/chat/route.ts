@@ -3,8 +3,10 @@ import { db } from '@/lib/db';
 import { aiConversation, aiMessage, aiProvider } from '@/lib/schema';
 import { asc, eq } from 'drizzle-orm';
 import { streamChatCompletion, titleFromMessage, type AiChatMessage } from '@/lib/ai';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const { conversation_id, content, provider_id } = await req.json();
   const text = typeof content === 'string' ? content.trim() : '';
 

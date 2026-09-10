@@ -4,10 +4,12 @@ import { campaignLead, campaignStep, lead, leadContact } from '@/lib/leads/schem
 import { campaignStepMeta } from '@/lib/leads/campaign-steps';
 import { renderStepTemplates } from '@/lib/leads/template';
 import { and, asc, eq, inArray, ne } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id: campaignId } = await params;
   const includeDone = req.nextUrl.searchParams.get('include_done') === '1';
   const db = getLeadsDb();

@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { aiConversation, aiMessage, aiProvider } from '@/lib/schema';
 import { asc, eq } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
+import { writeAudit } from '@/lib/auth/audit';
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const [conversation] = await db
     .select({
@@ -43,6 +46,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const body = await req.json();
   const updates: Partial<typeof aiConversation.$inferInsert> = {
@@ -59,7 +63,9 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   await db.delete(aiConversation).where(eq(aiConversation.id, id));
+  await writeAudit({ action: 'ai_conversation.delete', resource: 'ai_conversation', resourceId: id });
   return NextResponse.json({ ok: true });
 }

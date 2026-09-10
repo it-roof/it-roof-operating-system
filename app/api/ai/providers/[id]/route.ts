@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { aiProvider } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import { maskApiKey } from '@/lib/ai';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
+import { writeAudit } from '@/lib/auth/audit';
 
 function toPublic(row: typeof aiProvider.$inferSelect) {
   return {
@@ -21,6 +23,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const body = await req.json();
   const updates: Partial<typeof aiProvider.$inferInsert> = {
@@ -44,7 +47,9 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   await db.delete(aiProvider).where(eq(aiProvider.id, id));
+  await writeAudit({ action: 'ai_provider.delete', resource: 'ai_provider', resourceId: id });
   return NextResponse.json({ ok: true });
 }

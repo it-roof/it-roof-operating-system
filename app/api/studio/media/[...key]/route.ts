@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readBuffer, absolutePath } from '@/lib/studio/storage';
 import path from 'path';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 const MIME: Record<string, string> = {
   '.jpg': 'image/jpeg',
@@ -14,6 +15,7 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ key: string[] }> },
 ) {
+  if (!(await requireSession())) return unauthorized();
   const { key } = await params;
   const storageKey = key.map(decodeURIComponent).join('/');
   try {

@@ -250,6 +250,9 @@ export const users = pgTable('user', {
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
   image: text('image'),
   password: text('password'),
+  totpSecret: text('totp_secret'),
+  totpEnabled: boolean('totp_enabled').default(false).notNull(),
+  passwordChangedAt: timestamp('password_changed_at', { withTimezone: true, mode: 'date' }),
 });
 
 export const accounts = pgTable(
@@ -291,3 +294,49 @@ export const verificationTokens = pgTable(
   },
   (vt) => [primaryKey({ columns: [vt.identifier, vt.token] })],
 );
+
+/** Brute-Force-Schutz für Credentials-Login */
+export const loginAttempt = pgTable('login_attempt', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  key: text('key').notNull(),
+  attemptedAt: timestamp('attempted_at', { withTimezone: true, mode: 'date' })
+    .defaultNow()
+    .notNull(),
+}, (table) => [
+  index('idx_login_attempt_key_time').using(
+    'btree',
+    table.key.asc().nullsLast().op('text_ops'),
+    table.attemptedAt.desc().nullsLast(),
+  ),
+]);
+
+/** Einmalige Passwort-Reset-Tokens (Hash gespeichert) */
+export const passwordResetToken = pgTable('password_reset_token', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true, mode: 'date' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+  index('idx_password_reset_token_hash').using('btree', table.tokenHash.asc().nullsLast().op('text_ops')),
+  index('idx_password_reset_user').using('btree', table.userId.asc().nullsLast().op('text_ops')),
+]);
+
+/** Audit für destruktive / sensitive Aktionen */
+export const auditLog = pgTable('audit_log', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  userId: text('user_id'),
+  userEmail: text('user_email'),
+  action: text('action').notNull(),
+  resource: text('resource'),
+  resourceId: text('resource_id'),
+  meta: text('meta'),
+  ip: text('ip'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+  index('idx_audit_log_created').using('btree', table.createdAt.desc().nullsLast()),
+  index('idx_audit_log_action').using('btree', table.action.asc().nullsLast().op('text_ops')),
+]);

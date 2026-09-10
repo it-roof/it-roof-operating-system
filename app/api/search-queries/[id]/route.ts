@@ -3,10 +3,13 @@ import { getLeadsDb } from '@/lib/leads/db';
 import { searchQuery } from '@/lib/leads/schema';
 import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { eq } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
+import { writeAudit } from '@/lib/auth/audit';
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const db = getLeadsDb();
   const [row] = await db.select().from(searchQuery).where(eq(searchQuery.id, id));
@@ -15,6 +18,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const body = await req.json();
   const updates: Partial<typeof searchQuery.$inferInsert> = {};
@@ -45,9 +49,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
+  if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const db = getLeadsDb();
   const [row] = await db.delete(searchQuery).where(eq(searchQuery.id, id)).returning({ id: searchQuery.id });
   if (!row) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
+  await writeAudit({ action: 'search_query.delete', resource: 'search_query', resourceId: id });
   return NextResponse.json({ ok: true });
 }

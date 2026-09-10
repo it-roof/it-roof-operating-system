@@ -13,11 +13,13 @@ import {
 import { campaignStepMeta } from '@/lib/leads/campaign-steps';
 import { renderStepTemplates } from '@/lib/leads/template';
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 const REGION_ORDER = ['Mittelfranken', 'Oberfranken', 'Unterfranken', 'Bayern'];
 
 /** Globale Inbox: offene Kampagnen-Leads über alle Kampagnen. */
 export async function GET(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const campaignId = (req.nextUrl.searchParams.get('campaign_id') ?? '').trim();
   const db = getLeadsDb();
 

@@ -1,5 +1,18 @@
 import type { NextAuthConfig } from 'next-auth';
 
+function isPublicPath(pathname: string) {
+  if (pathname.startsWith('/api/auth')) return true;
+  if (pathname === '/login') return true;
+  // Nur Reset mit Token — kein öffentliches „Passwort vergessen“
+  if (pathname === '/login/reset' || pathname.startsWith('/login/reset/')) return true;
+  if (pathname.startsWith('/_next')) return true;
+  if (pathname.startsWith('/favicon')) return true;
+  if (pathname === '/manifest.webmanifest') return true;
+  if (pathname === '/robots.txt') return true;
+  if (/\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|woff2?)$/i.test(pathname)) return true;
+  return false;
+}
+
 /**
  * Edge-sichere Auth-Config (für proxy.ts).
  * Credentials/DB bleiben in auth.ts.
@@ -11,19 +24,7 @@ export default {
   },
   callbacks: {
     authorized({ auth, request }) {
-      const { pathname } = request.nextUrl;
-      if (
-        pathname.startsWith('/api/auth')
-        || pathname === '/login'
-        || pathname.startsWith('/login/')
-        || pathname.startsWith('/_next')
-        || pathname.startsWith('/favicon')
-        || pathname === '/manifest.webmanifest'
-        || pathname === '/robots.txt'
-        || /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|woff2?)$/i.test(pathname)
-      ) {
-        return true;
-      }
+      if (isPublicPath(request.nextUrl.pathname)) return true;
       return !!auth;
     },
   },

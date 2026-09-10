@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { task, project, company } from '@/lib/schema';
 import { eq, ne, sql } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET() {
+  if (!(await requireSession())) return unauthorized();
   const rows = await db
     .select({
       id: task.id,
@@ -29,6 +31,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const { title, priority, project_id, planned_date, time_estimate_minutes } = await req.json();
   if (!title || !project_id) {
     return NextResponse.json({ error: 'title + project_id required' }, { status: 400 });

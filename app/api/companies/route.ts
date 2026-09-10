@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { company, companyContact, contact } from '@/lib/schema';
 import { eq, sql } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 export async function GET() {
+  if (!(await requireSession())) return unauthorized();
   const rows = await db
     .select({
       id: company.id,

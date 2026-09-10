@@ -1,6 +1,5 @@
 import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 import authConfig from '@/auth.config';
 
 const { auth } = NextAuth(authConfig);
@@ -17,7 +16,19 @@ function nextWithNoIndex() {
   return withNoIndex(NextResponse.next());
 }
 
-export const proxy = auth((request: NextRequest & { auth: unknown }) => {
+function isPublicPath(pathname: string) {
+  if (pathname.startsWith('/api/auth')) return true;
+  if (pathname === '/login') return true;
+  if (pathname === '/login/reset' || pathname.startsWith('/login/reset/')) return true;
+  if (pathname.startsWith('/_next')) return true;
+  if (pathname.startsWith('/favicon')) return true;
+  if (pathname === '/manifest.webmanifest') return true;
+  if (pathname === '/robots.txt') return true;
+  if (/\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|woff2?)$/i.test(pathname)) return true;
+  return false;
+}
+
+export const proxy = auth((request) => {
   const { pathname } = request.nextUrl;
   const isLoggedIn = !!request.auth;
 
@@ -25,7 +36,11 @@ export const proxy = auth((request: NextRequest & { auth: unknown }) => {
     return nextWithNoIndex();
   }
 
-  const isLogin = pathname === '/login' || pathname.startsWith('/login/');
+  // Alte/öffentliche Reset-Request-URLs nicht exposen
+  if (pathname === '/login/forgot' || pathname.startsWith('/login/forgot/')) {
+    return withNoIndex(NextResponse.redirect(new URL('/login', request.url)));
+  }
+
   const isAsset =
     pathname.startsWith('/_next')
     || pathname.startsWith('/favicon')
@@ -37,22 +52,21 @@ export const proxy = auth((request: NextRequest & { auth: unknown }) => {
     return nextWithNoIndex();
   }
 
-  if (isLogin) {
-    if (isLoggedIn) {
+  if (pathname === '/login' || pathname === '/login/reset' || pathname.startsWith('/login/reset/')) {
+    if (isLoggedIn && pathname === '/login') {
       return withNoIndex(NextResponse.redirect(new URL('/', request.url)));
     }
     return nextWithNoIndex();
   }
 
-  if (!isLoggedIn) {
+  if (!isPublicPath(pathname) && !isLoggedIn) {
     if (pathname.startsWith('/api/')) {
       return withNoIndex(
-        NextResponse.json({ error: 'Nicht angemeldet' }, { status: 401 }),
+        NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
       );
     }
     const login = new URL('/login', request.url);
-    const next = `${pathname}${request.nextUrl.search}`;
-    if (next && next !== '/') login.searchParams.set('next', next);
+    // next-Param weglassen — weniger Infoleak über interne Pfade
     return withNoIndex(NextResponse.redirect(login));
   }
 

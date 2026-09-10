@@ -4,6 +4,8 @@ import { campaignLead, campaignLeadAction, campaignStep, lead } from '@/lib/lead
 import { nowIso, requireString } from '@/lib/leads/http';
 import { parseListBody, parseListParam } from '@/lib/leads/filter-params';
 import { and, asc, eq, ilike, inArray, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { requireSession, unauthorized } from '@/lib/auth/require-session';
+import { writeAudit } from '@/lib/auth/audit';
 
 function leadFilters(opts: {
   cities?: string[];
@@ -38,6 +40,7 @@ function leadFilters(opts: {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   try {
     const body = await req.json();
     const campaignId = requireString(body.campaign_id ?? body.campaignId, 'campaign_id');
@@ -146,6 +149,7 @@ export async function POST(req: NextRequest) {
 
 /** Count of matching leads not yet in campaign (for „Alle Treffer“) */
 export async function GET(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   const campaignId = (req.nextUrl.searchParams.get('campaign_id') ?? '').trim();
   const cities = parseListParam(req.nextUrl.searchParams, ['city', 'cities']);
   const industries = parseListParam(req.nextUrl.searchParams, ['industry', 'industries']);
@@ -203,6 +207,7 @@ export async function GET(req: NextRequest) {
 
 /** Zuordnungen aufheben: campaign_id + lead_ids oder dieselben Filter wie Zuordnen */
 export async function DELETE(req: NextRequest) {
+  if (!(await requireSession())) return unauthorized();
   try {
     const body = await req.json();
     const campaignId = requireString(body.campaign_id ?? body.campaignId, 'campaign_id');
@@ -253,6 +258,18 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ ok: true, removed: 0 });
     }
 
+    const BULK_DELETE_MAX = 500;
+    if (targetLeadIds.length > BULK_DELETE_MAX) {
+      return NextResponse.json(
+        {
+          error: `Maximal ${BULK_DELETE_MAX} Zuordnungen pro Vorgang. Bitte Filter enger setzen oder in Batches löschen.`,
+          match_count: targetLeadIds.length,
+          max: BULK_DELETE_MAX,
+        },
+        { status: 400 },
+      );
+    }
+
     const rows = await db
       .select({ id: campaignLead.id })
       .from(campaignLead)
@@ -274,6 +291,13 @@ export async function DELETE(req: NextRequest) {
     await db
       .delete(campaignLead)
       .where(inArray(campaignLead.id, clIds));
+
+    await writeAudit({
+      action: 'campaign_lead.bulk_unassign',
+      resource: 'campaign',
+      resourceId: campaignId,
+      meta: { removed: clIds.length, leadCount: targetLeadIds.length },
+    });
 
     return NextResponse.json({ ok: true, removed: clIds.length });
   } catch (e) {
