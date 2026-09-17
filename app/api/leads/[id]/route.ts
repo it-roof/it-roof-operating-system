@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLeadsDb } from '@/lib/leads/db';
 import { lead, leadContact } from '@/lib/leads/schema';
-import { emptyToNull } from '@/lib/leads/http';
+import { emptyToNull, nowIso } from '@/lib/leads/http';
+import { isOutreachStatus } from '@/lib/leads/outreach-status';
 import { eq, sql } from 'drizzle-orm';
 import { requireSession, unauthorized } from '@/lib/auth/require-session';
 import { writeAudit } from '@/lib/auth/audit';
@@ -24,6 +25,8 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       phone: lead.phone,
       industry: lead.industry,
       status: lead.status,
+      outreach_status: lead.outreachStatus,
+      outreach_status_at: lead.outreachStatusAt,
       created_at: lead.createdAt,
       contacts: sql<{
         id: string;
@@ -80,6 +83,20 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (body.phone !== undefined) updates.phone = emptyToNull(body.phone);
   if (body.industry !== undefined) updates.industry = emptyToNull(body.industry);
   if (body.status !== undefined) updates.status = String(body.status).trim();
+  if (body.outreach_status !== undefined || body.outreachStatus !== undefined) {
+    const v = String(body.outreach_status ?? body.outreachStatus ?? '').trim();
+    if (!isOutreachStatus(v)) {
+      return NextResponse.json(
+        {
+          error:
+            'outreach_status muss open, valid, invalid, domain_dead, skip oder bounced sein',
+        },
+        { status: 400 },
+      );
+    }
+    updates.outreachStatus = v;
+    updates.outreachStatusAt = nowIso();
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'Nichts zu updaten' }, { status: 400 });

@@ -17,6 +17,7 @@ export async function GET() {
       zeit_minuten: task.timeEstimateMinutes,
       projekt: project.name,
       firma: sql<string>`COALESCE(${company.name}, '')`,
+      project_id: task.projectId,
     })
     .from(task)
     .innerJoin(project, eq(task.projectId, project.id))

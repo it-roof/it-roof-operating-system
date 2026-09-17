@@ -4,6 +4,7 @@ import { task } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import { requireSession, unauthorized } from '@/lib/auth/require-session';
 import { writeAudit } from '@/lib/auth/audit';
+import { otherUsersHaveEntries } from '@/lib/time-entries';
 
 export async function PATCH(
   req: NextRequest,
@@ -12,12 +13,14 @@ export async function PATCH(
   if (!(await requireSession())) return unauthorized();
   const { id } = await params;
   const body = await req.json();
-  const { status, title, time_estimate_minutes } = body;
+  const { status, title, time_estimate_minutes, project_id, planned_date } = body;
 
   const updates: Partial<typeof task.$inferInsert> = {};
   if (title !== undefined) updates.title = title;
   if (status !== undefined) updates.status = status;
   if (time_estimate_minutes !== undefined) updates.timeEstimateMinutes = time_estimate_minutes;
+  if (project_id !== undefined) updates.projectId = project_id;
+  if (planned_date !== undefined) updates.plannedDate = planned_date;
   if (status === 'done') updates.completedAt = new Date().toISOString();
   if (status === 'open') updates.completedAt = null;
 
@@ -33,8 +36,15 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!(await requireSession())) return unauthorized();
+  const session = await requireSession();
+  if (!session) return unauthorized();
   const { id } = await params;
+  if (await otherUsersHaveEntries(id, session.user.id)) {
+    return NextResponse.json(
+      { error: 'Kann nicht gelöscht werden: der andere Mitarbeiter hat Zeit auf dieser Aufgabe.' },
+      { status: 409 },
+    );
+  }
   await db.delete(task).where(eq(task.id, id));
   await writeAudit({ action: 'task.delete', resource: 'task', resourceId: id });
   return NextResponse.json({ ok: true });

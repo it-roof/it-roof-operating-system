@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, index, foreignKey, check, date, integer, time, boolean, numeric, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, index, uniqueIndex, foreignKey, check, date, integer, time, boolean, numeric, primaryKey } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
 export const company = pgTable('company', {
@@ -69,6 +69,27 @@ export const task = pgTable('task', {
   check('tasks_status_check', sql`status = ANY (ARRAY['open'::text, 'in_progress'::text, 'done'::text])`),
   check('tasks_priority_check', sql`priority = ANY (ARRAY['high'::text, 'medium'::text, 'low'::text])`),
   check('tasks_type_check', sql`type = ANY (ARRAY['task'::text, 'appointment_in_person'::text, 'appointment_remote'::text])`),
+]);
+
+export const timeEntry = pgTable('time_entry', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  taskId: uuid('task_id').notNull(),
+  userId: text('user_id').notNull(),
+  title: text(),
+  startedAt: timestamp('started_at', { withTimezone: true, mode: 'string' }).notNull(),
+  stoppedAt: timestamp('stopped_at', { withTimezone: true, mode: 'string' }),
+  durationSeconds: integer('duration_seconds').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow(),
+}, (table) => [
+  index('idx_time_entry_task').using('btree', table.taskId.asc().nullsLast().op('uuid_ops')),
+  index('idx_time_entry_started').using('btree', table.startedAt.asc().nullsLast()),
+  index('idx_time_entry_user').using('btree', table.userId.asc().nullsLast().op('text_ops')),
+  uniqueIndex('idx_time_entry_running').on(table.userId).where(sql`${table.stoppedAt} IS NULL`),
+  foreignKey({
+    columns: [table.taskId],
+    foreignColumns: [task.id],
+    name: 'time_entry_task_id_fkey',
+  }).onDelete('cascade'),
 ]);
 
 export const companyContact = pgTable('company_contact', {
@@ -169,8 +190,13 @@ export const projectRelations = relations(project, ({ one, many }) => ({
   tasks: many(task),
 }));
 
-export const taskRelations = relations(task, ({ one }) => ({
+export const taskRelations = relations(task, ({ one, many }) => ({
   project: one(project, { fields: [task.projectId], references: [project.id] }),
+  timeEntries: many(timeEntry),
+}));
+
+export const timeEntryRelations = relations(timeEntry, ({ one }) => ({
+  task: one(task, { fields: [timeEntry.taskId], references: [task.id] }),
 }));
 
 export const tripRelations = relations(trip, ({ one }) => ({
@@ -339,4 +365,22 @@ export const auditLog = pgTable('audit_log', {
 }, (table) => [
   index('idx_audit_log_created').using('btree', table.createdAt.desc().nullsLast()),
   index('idx_audit_log_action').using('btree', table.action.asc().nullsLast().op('text_ops')),
+]);
+
+/** SMTP-Postfächer für Lead-Outreach (Passwort AES-GCM verschlüsselt) */
+export const mailAccount = pgTable('mail_account', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  email: text('email').notNull().unique(),
+  displayName: text('display_name'),
+  smtpHost: text('smtp_host').notNull(),
+  smtpPort: integer('smtp_port').notNull().default(587),
+  smtpUser: text('smtp_user').notNull(),
+  /** AES-256-GCM Payload (`v1.iv.tag.ciphertext`) — nie Klartext */
+  smtpPasswordEncrypted: text('smtp_password_encrypted').notNull(),
+  dailyCap: integer('daily_cap').notNull().default(20),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+  index('idx_mail_account_active').using('btree', table.active.asc().nullsLast()),
 ]);

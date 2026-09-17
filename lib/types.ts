@@ -8,6 +8,14 @@ export type Task = {
   projekt: string;
   firma: string;
   status: string;
+  project_id: string;
+};
+
+export type TrackerProject = {
+  id: string;
+  name: string;
+  company_id: string | null;
+  firma: string | null;
 };
 
 export type SharedProps = {

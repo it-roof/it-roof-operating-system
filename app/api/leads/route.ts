@@ -5,6 +5,7 @@ import { emptyToNull, nowIso, requireString } from '@/lib/leads/http';
 import { pageMeta, pageOffset, parseLimit, parsePage } from '@/lib/leads/pagination';
 import { and, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { parseListParam } from '@/lib/leads/filter-params';
+import { parseOutreachStatus } from '@/lib/leads/outreach-status';
 import { requireSession, unauthorized } from '@/lib/auth/require-session';
 
 function searchFilter(q: string) {
@@ -57,6 +58,7 @@ export async function GET(req: NextRequest) {
   if (!(await requireSession())) return unauthorized();
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim();
   const status = req.nextUrl.searchParams.get('status') ?? 'all';
+  const outreachStatus = req.nextUrl.searchParams.get('outreach_status') ?? 'all';
   const cities = parseListParam(req.nextUrl.searchParams, ['city', 'cities']);
   const industries = parseListParam(req.nextUrl.searchParams, ['industry', 'industries']);
   const searchQueryIds = parseListParam(req.nextUrl.searchParams, [
@@ -72,6 +74,7 @@ export async function GET(req: NextRequest) {
 
   const base: SQL[] = [];
   if (status !== 'all') base.push(eq(lead.status, status));
+  if (outreachStatus !== 'all') base.push(eq(lead.outreachStatus, outreachStatus));
   if (q) base.push(searchFilter(q));
 
   if (includeCampaignId) base.push(inCampaign(includeCampaignId));
@@ -167,6 +170,8 @@ export async function GET(req: NextRequest) {
       phone: lead.phone,
       industry: lead.industry,
       status: lead.status,
+      outreach_status: lead.outreachStatus,
+      outreach_status_at: lead.outreachStatusAt,
       created_at: lead.createdAt,
       search_query_id: lead.searchQueryId,
       contacts: sql<{
@@ -212,6 +217,7 @@ export async function GET(req: NextRequest) {
       all_total: statsRow?.total ?? 0,
       q,
       status,
+      outreach_status: outreachStatus,
       selected_cities: cities,
       selected_industries: industries,
       selected_search_query_ids: searchQueryIds,
@@ -240,6 +246,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const companyName = requireString(body.company_name ?? body.companyName, 'company_name');
     const status = (body.status ?? 'raw').trim() || 'raw';
+    const outreachStatus = parseOutreachStatus(
+      body.outreach_status ?? body.outreachStatus,
+      'open',
+    );
 
     const db = getLeadsDb();
     const [row] = await db
@@ -253,6 +263,7 @@ export async function POST(req: NextRequest) {
         phone: emptyToNull(body.phone),
         industry: emptyToNull(body.industry),
         status,
+        outreachStatus,
         createdAt: nowIso(),
       })
       .returning();

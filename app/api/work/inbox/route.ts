@@ -41,6 +41,8 @@ export async function GET(req: NextRequest) {
       city: lead.city,
       phone: lead.phone,
       domain: lead.domain,
+      outreach_status: lead.outreachStatus,
+      outreach_status_at: lead.outreachStatusAt,
     })
     .from(campaignLead)
     .innerJoin(lead, eq(lead.id, campaignLead.leadId))
@@ -163,6 +165,8 @@ export async function GET(req: NextRequest) {
       company_name: r.company_name,
       city: r.city,
       domain: r.domain,
+      outreach_status: r.outreach_status,
+      outreach_status_at: r.outreach_status_at,
       tag_ids: tags.map((t) => t.id),
       contact: contact
         ? {

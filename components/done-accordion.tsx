@@ -19,9 +19,9 @@ export function DoneAccordion({ onReopen }: { onReopen: (id: string) => void }) 
   const [loaded, setLoaded] = useState(false);
 
   async function load() {
-    if (loaded) return;
     const r = await fetch('/api/tasks/done');
-    setTasks(await r.json());
+    const data = await r.json();
+    setTasks(Array.isArray(data) ? data : []);
     setLoaded(true);
   }
 

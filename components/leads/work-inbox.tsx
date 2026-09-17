@@ -7,6 +7,13 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { campaignStepMeta, delayLabel } from '@/lib/leads/campaign-steps';
 import {
+  OUTREACH_STATUS_CLASS,
+  OUTREACH_STATUS_DE,
+  formatOutreachStatusAt,
+  parseOutreachStatus,
+  type OutreachStatus,
+} from '@/lib/leads/outreach-status';
+import {
   splitHeaderY,
   splitLeftPad,
   splitLeftPadEnd,
@@ -23,6 +30,7 @@ import {
   MessageCircleIcon,
   PhoneIcon,
   ScrollTextIcon,
+  ShieldCheckIcon,
   SkipForwardIcon,
   TimerIcon,
   type LucideIcon,
@@ -37,6 +45,8 @@ type InboxItem = {
   company_name: string;
   city: string | null;
   domain: string | null;
+  outreach_status?: string | null;
+  outreach_status_at?: string | null;
   tag_ids: string[];
   contact: {
     id: string;
@@ -166,43 +176,54 @@ export function WorkInbox() {
   const [completing, setCompleting] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [showMobileDetail, setShowMobileDetail] = useState(false);
+  const [emailChecking, setEmailChecking] = useState(false);
+  const [emailCheckDetail, setEmailCheckDetail] = useState<string | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
-    const [inboxRes, campsRes] = await Promise.all([
-      fetch('/api/work/inbox', { signal }),
-      fetch('/api/campaigns', { signal }),
-    ]);
-    const inboxData = await inboxRes.json();
-    const campsData = await campsRes.json();
-    if (signal?.aborted) return;
+    try {
+      const [inboxRes, campsRes] = await Promise.all([
+        fetch('/api/work/inbox', { signal }),
+        fetch('/api/campaigns', { signal }),
+      ]);
+      if (signal?.aborted) return;
 
-    const next: InboxItem[] = (inboxData.items ?? []).map((item: InboxItem) => ({
-      ...item,
-      tag_ids: item.tag_ids ?? [],
-    }));
-    const counts = new Map<string, number>(
-      ((inboxData.campaigns ?? []) as CampaignFacet[]).map((c) => [c.id, c.n]),
-    );
-    const allCampaigns: CampaignFacet[] = ((campsData.campaigns ?? []) as {
-      id: string;
-      name: string;
-    }[]).map((c) => ({
-      id: c.id,
-      name: c.name,
-      n: counts.get(c.id) ?? 0,
-    }));
-    allCampaigns.sort((a, b) => {
-      if (b.n !== a.n) return b.n - a.n;
-      return a.name.localeCompare(b.name, 'de');
-    });
+      const inboxData = await inboxRes.json();
+      const campsData = await campsRes.json();
+      if (signal?.aborted) return;
 
-    setItems(next);
-    setCampaigns(allCampaigns);
-    setRegions((inboxData.regions ?? []) as RegionFacet[]);
-    setTodayDone(inboxData.meta?.today_done ?? 0);
-    setActiveId((prev) => (prev && next.some((i) => i.id === prev) ? prev : next[0]?.id ?? null));
-    setLoading(false);
+      const next: InboxItem[] = (inboxData.items ?? []).map((item: InboxItem) => ({
+        ...item,
+        tag_ids: item.tag_ids ?? [],
+      }));
+      const counts = new Map<string, number>(
+        ((inboxData.campaigns ?? []) as CampaignFacet[]).map((c) => [c.id, c.n]),
+      );
+      const allCampaigns: CampaignFacet[] = ((campsData.campaigns ?? []) as {
+        id: string;
+        name: string;
+      }[]).map((c) => ({
+        id: c.id,
+        name: c.name,
+        n: counts.get(c.id) ?? 0,
+      }));
+      allCampaigns.sort((a, b) => {
+        if (b.n !== a.n) return b.n - a.n;
+        return a.name.localeCompare(b.name, 'de');
+      });
+
+      setItems(next);
+      setCampaigns(allCampaigns);
+      setRegions((inboxData.regions ?? []) as RegionFacet[]);
+      setTodayDone(inboxData.meta?.today_done ?? 0);
+      setActiveId((prev) => (prev && next.some((i) => i.id === prev) ? prev : next[0]?.id ?? null));
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (signal?.aborted) return;
+      throw err;
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -286,6 +307,7 @@ export function WorkInbox() {
   function selectItem(id: string) {
     setActiveId(id);
     setShowMobileDetail(true);
+    setEmailCheckDetail(null);
   }
 
   async function handleCopy(key: string, text: string) {
@@ -295,6 +317,37 @@ export function WorkInbox() {
     if (!ok) return;
     setCopiedKey(key);
     window.setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1200);
+  }
+
+  async function runEmailCheck() {
+    if (!active || emailChecking) return;
+    setEmailChecking(true);
+    setEmailCheckDetail(null);
+    const r = await fetch(`/api/leads/${active.lead_id}/email-check`, { method: 'POST' });
+    const data = await r.json().catch(() => null);
+    setEmailChecking(false);
+    if (!r.ok) {
+      setEmailCheckDetail(
+        typeof data?.error === 'string' ? data.error : 'Prüfung fehlgeschlagen',
+      );
+      return;
+    }
+    const next = parseOutreachStatus(data?.lead?.outreach_status ?? data?.check?.status, 'open');
+    const at =
+      (data?.lead?.outreach_status_at as string | undefined) ?? new Date().toISOString();
+    const detail = typeof data?.check?.detail === 'string' ? data.check.detail : null;
+    setEmailCheckDetail(detail);
+    setItems((prev) =>
+      prev.map((i) =>
+        i.lead_id === active.lead_id
+          ? { ...i, outreach_status: next, outreach_status_at: at }
+          : i,
+      ),
+    );
+  }
+
+  function outreachOf(item: Pick<InboxItem, 'outreach_status'>): OutreachStatus {
+    return parseOutreachStatus(item.outreach_status, 'open');
   }
 
   async function complete(action: 'done' | 'skipped') {
@@ -656,6 +709,40 @@ export function WorkInbox() {
               </div>
 
               <div className="space-y-5 py-5">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium tracking-wide text-muted-foreground">
+                        Outreach
+                      </p>
+                      <p className={cn('mt-0.5 font-mono text-[12px]', OUTREACH_STATUS_CLASS[outreachOf(active)])}>
+                        {OUTREACH_STATUS_DE[outreachOf(active)]}
+                        {formatOutreachStatusAt(active.outreach_status_at) && (
+                          <span className="text-muted-foreground">
+                            {' '}
+                            · {formatOutreachStatusAt(active.outreach_status_at)}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 shrink-0 gap-1.5 px-2.5"
+                      disabled={emailChecking || completing}
+                      onClick={() => void runEmailCheck()}
+                    >
+                      <ShieldCheckIcon className="size-3.5" />
+                      {emailChecking ? '…' : 'Prüfen'}
+                    </Button>
+                  </div>
+                  {emailCheckDetail && (
+                    <p className="font-mono text-[11px] text-muted-foreground">
+                      {emailCheckDetail}
+                    </p>
+                  )}
+                </div>
+
                 {(active.contact?.email || active.contact?.phone) && (
                   <div className="flex flex-col gap-2">
                     {active.contact.email && (

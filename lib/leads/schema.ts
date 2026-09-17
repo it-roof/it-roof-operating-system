@@ -11,6 +11,10 @@ export const lead = pgTable('lead', {
   industry: text(),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }),
   status: text().notNull(),
+  /** Zustellung/Outreach — getrennt von Datenqualität (`status`) */
+  outreachStatus: text('outreach_status').notNull().default('open'),
+  /** Wann outreach_status zuletzt gesetzt/geprüft wurde */
+  outreachStatusAt: timestamp('outreach_status_at', { withTimezone: true, mode: 'string' }),
   searchQueryId: uuid('search_query_id'),
 });
 
