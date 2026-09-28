@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { fmtHms } from '@/lib/time-entry-utils';
 
@@ -64,16 +64,16 @@ type TimerContextType = {
   activeId: string | null;
   activeEntryId: string | null;
   activeTitle: string | null;
-  /** Live-Sekunden der gerade laufenden Session (nicht lokal akkumuliert) */
-  liveSecs: number;
-  fmtLive: string;
-  /** Gesamte akkumulierte Sekunden für eine beliebige Aufgabe */
+  pending: boolean;
+  startedAtMs: number | null;
   getTaskSecs: (id: string) => number;
-  startTask: (id: string, title: string, startedAtMs?: number) => Promise<void>;
-  stopTask: () => Promise<void>;
-  /** Titel der laufenden Erfassung aktualisieren (Banner / Leiste) */
+  startTask: (id: string, title: string, restart?: boolean) => Promise<void>;
+  stopTask: (opts?: { localOnly?: boolean }) => Promise<void>;
   updateActiveTitle: (title: string) => void;
-  /** Schließt die Zeiterfassung ab: gibt Gesamtsekunden zurück und löscht den Eintrag */
+  beginTimerEdit: () => void;
+  endTimerEdit: () => void;
+  registerRunningFlush: (fn: (() => Promise<void>) | null) => void;
+  syncRunningStartedAt: (startedAtMs: number) => void;
   finishTask: (id: string) => Promise<number>;
 };
 
@@ -82,12 +82,16 @@ const TimerContext = createContext<TimerContextType>({
   activeId: null,
   activeEntryId: null,
   activeTitle: null,
-  liveSecs: 0,
-  fmtLive: '00:00:00',
+  pending: false,
+  startedAtMs: null,
   getTaskSecs: () => 0,
   startTask: async () => {},
   stopTask: async () => {},
   updateActiveTitle: () => {},
+  beginTimerEdit: () => {},
+  endTimerEdit: () => {},
+  registerRunningFlush: () => {},
+  syncRunningStartedAt: () => {},
   finishTask: async () => 0,
 });
 
@@ -99,238 +103,316 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState<string | null>(null);
   const [accumulated, setAccumulated] = useState<Record<string, number>>({});
+  const [pending, setPending] = useState(false);
+  const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
   const startRef = useRef<number | null>(null);
   const activeIdRef = useRef<string | null>(null);
+  const activeEntryIdRef = useRef<string | null>(null);
+  const activeTitleRef = useRef<string | null>(null);
   const userIdRef = useRef<string | null>(null);
-  const mutatingRef = useRef(0);
-  const [tick, setTick] = useState(0);
+  const opChain = useRef(Promise.resolve());
+  const pendingRef = useRef(false);
+  const inflightRef = useRef(0);
+  const editCountRef = useRef(0);
+  const runningFlushRef = useRef<(() => Promise<void>) | null>(null);
 
   activeIdRef.current = activeId;
+  activeEntryIdRef.current = activeEntryId;
+  activeTitleRef.current = activeTitle;
 
-  const applyRunning = useCallback((row: RunningRow) => {
-    const userId = userIdRef.current;
-    if (row?.task_id && row.started_at) {
-      const startedAt = new Date(row.started_at).getTime();
-      if (activeIdRef.current !== row.task_id) {
-        setActiveTitle(row.title ?? null);
-      }
-      setActiveId(row.task_id);
-      setActiveEntryId(row.id ?? null);
-      startRef.current = startedAt;
-      persistSession(userId, { id: row.task_id, title: row.title ?? '', startedAt });
-      return;
-    }
-    persistSession(userId, null);
+  const resetLocal = useCallback(() => {
+    persistSession(userIdRef.current, null);
     startRef.current = null;
+    setStartedAtMs(null);
     setActiveId(null);
     setActiveEntryId(null);
     setActiveTitle(null);
   }, []);
 
-  const hydrateFromDb = useCallback(async () => {
-    if (mutatingRef.current) return;
-    const gen = mutatingRef.current;
+  const hydrateFromDb = useCallback(async (mode: 'full' | 'running' = 'full', force = false) => {
+    if (pendingRef.current && !force) return;
     try {
-      const sessRes = await fetch('/api/auth/session');
-      if (mutatingRef.current !== gen) return;
-      const sess = sessRes.ok ? await sessRes.json() as { user?: { id?: string } } : null;
-      const userId = sess?.user?.id ?? null;
-      userIdRef.current = userId;
-      setUserId(userId);
-      if (userId) setAccumulated(loadAccumulated(userId));
-      if (!userId) {
-        applyRunning(null);
-        return;
+      if (mode === 'full' || !userIdRef.current) {
+        const sessRes = await fetch('/api/auth/session');
+        const sess = sessRes.ok ? await sessRes.json() as { user?: { id?: string } } : null;
+        const nextUser = sess?.user?.id ?? null;
+        userIdRef.current = nextUser;
+        setUserId(nextUser);
+        if (nextUser) setAccumulated(loadAccumulated(nextUser));
+        if (!nextUser) {
+          resetLocal();
+          return;
+        }
       }
 
       const r = await fetch('/api/time-entries/running');
-      if (mutatingRef.current !== gen) return;
       if (r.status === 401) {
-        applyRunning(null);
+        resetLocal();
         return;
       }
-      if (r.ok) {
-        const row = await r.json() as RunningRow;
-        if (mutatingRef.current !== gen) return;
-        applyRunning(row);
+      if (!r.ok) return;
+      const row = await r.json() as RunningRow;
+      const uid = userIdRef.current;
+      const editing = editCountRef.current > 0 && !force;
+      if (row?.task_id && row.started_at) {
+        const startedAt = new Date(row.started_at).getTime();
+        const sameEntry = Boolean(row.id && activeEntryIdRef.current === row.id);
+        if (editing && sameEntry) return;
+        if (!sameEntry || !startRef.current || Math.abs(startRef.current - startedAt) > 1000) {
+          startRef.current = startedAt;
+        }
+        setStartedAtMs(startedAt);
+        setActiveId(row.task_id);
+        setActiveEntryId(row.id ?? null);
+        if (!sameEntry) {
+          setActiveTitle(row.title ?? null);
+          persistSession(uid, { id: row.task_id, title: row.title ?? '', startedAt });
+        }
         return;
       }
+      if (editing) return;
+      resetLocal();
     } catch {
-      // offline: localStorage als Fallback
+      const uid = userIdRef.current;
+      if (!uid) return;
+      const session = loadSession(uid);
+      if (!session) return;
+      setActiveId(session.id);
+      setActiveTitle(session.title);
+      startRef.current = session.startedAt;
+      setStartedAtMs(session.startedAt);
     }
-    if (mutatingRef.current !== gen) return;
-    const userId = userIdRef.current;
-    if (!userId) return;
-    const session = loadSession(userId);
-    if (!session) return;
-    setActiveId(session.id);
-    setActiveTitle(session.title);
-    startRef.current = session.startedAt;
-  }, [applyRunning]);
+  }, [resetLocal]);
 
   useEffect(() => {
     if (!authed) {
       userIdRef.current = null;
       setUserId(null);
-      startRef.current = null;
-      setActiveId(null);
-      setActiveEntryId(null);
-      setActiveTitle(null);
+      resetLocal();
       return;
     }
-    void hydrateFromDb();
-  }, [authed, hydrateFromDb]);
+    void hydrateFromDb('full');
+  }, [authed, hydrateFromDb, resetLocal]);
 
   useEffect(() => {
     if (!authed) return;
     function onVis() {
-      if (document.visibilityState === 'visible') void hydrateFromDb();
+      if (document.visibilityState === 'visible') void hydrateFromDb('running');
     }
     document.addEventListener('visibilitychange', onVis);
     const iv = setInterval(() => {
-      if (document.visibilityState === 'visible') void hydrateFromDb();
-    }, 15000);
+      if (document.visibilityState === 'visible') void hydrateFromDb('running');
+    }, 20000);
     return () => {
       document.removeEventListener('visibilitychange', onVis);
       clearInterval(iv);
     };
   }, [authed, hydrateFromDb]);
 
-  useEffect(() => {
-    const iv = setInterval(() => setTick(t => t + 1), 500);
-    return () => clearInterval(iv);
+  const enqueue = useCallback(<T,>(fn: () => Promise<T>): Promise<T> => {
+    inflightRef.current += 1;
+    pendingRef.current = true;
+    setPending(true);
+    const run = opChain.current.then(() => fn());
+    opChain.current = run.then(() => undefined, () => undefined);
+    void run.finally(() => {
+      inflightRef.current -= 1;
+      if (inflightRef.current === 0) {
+        pendingRef.current = false;
+        setPending(false);
+      }
+    });
+    return run;
   }, []);
 
-  function getTaskSecs(id: string): number {
+  const getTaskSecs = useCallback((id: string): number => {
     const base = accumulated[id] ?? 0;
     if (activeId === id && startRef.current) {
       return base + Math.floor((Date.now() - startRef.current) / 1000);
     }
     return base;
-  }
+  }, [accumulated, activeId]);
 
-  const liveSecs = activeId && startRef.current
-    ? Math.max(0, Math.floor((Date.now() - startRef.current) / 1000))
-    : 0;
+  const startTask = useCallback(async (id: string, title: string, restart = false) => {
+    await enqueue(async () => {
+      if (!restart && activeIdRef.current === id && activeEntryIdRef.current) return;
 
-  async function startTask(id: string, title: string, startedAtMs?: number) {
-    mutatingRef.current += 1;
-    let startedAt = startedAtMs ?? Date.now();
-
-    try {
-      if (startedAtMs == null) {
-        const r = await fetch('/api/time-entries', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task_id: id, title }),
-        });
-        if (!r.ok) return;
-        const data = await r.json();
-        if (data?.started_at) startedAt = new Date(data.started_at).getTime();
-        if (data?.id) setActiveEntryId(data.id as string);
-      }
-
-      if (activeId && activeId !== id && startRef.current) {
-        const running = Math.floor((Date.now() - startRef.current) / 1000);
-        const updated = { ...accumulated, [activeId]: (accumulated[activeId] ?? 0) + running };
-        setAccumulated(updated);
-        persistAccumulated(userIdRef.current, updated);
-      }
-      setActiveId(id);
-      setActiveTitle(title);
-      startRef.current = startedAt;
-      persistSession(userIdRef.current, { id, title, startedAt });
-    } catch {
-      // ohne DB-Start nicht lokal weiterlaufen lassen
-    } finally {
-      mutatingRef.current -= 1;
-    }
-  }
-
-  async function stopTask() {
-    mutatingRef.current += 1;
-    try {
-      const r = await fetch('/api/time-entries/stop', { method: 'POST' });
-      if (!r.ok) return;
-      if (!activeId || !startRef.current) {
-        persistSession(userIdRef.current, null);
-        startRef.current = null;
-        setActiveId(null);
-        setActiveEntryId(null);
-        setActiveTitle(null);
+      const r = await fetch('/api/time-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: id, title }),
+      });
+      if (!r.ok) {
+        await hydrateFromDb('running', true);
         return;
       }
-      const running = Math.floor((Date.now() - startRef.current) / 1000);
-      const updated = { ...accumulated, [activeId]: (accumulated[activeId] ?? 0) + running };
-      setAccumulated(updated);
-      persistAccumulated(userIdRef.current, updated);
+      const data = await r.json() as { id?: string; started_at?: string };
+      const startedAt = data?.started_at ? new Date(data.started_at).getTime() : Date.now();
+
+      if (activeIdRef.current && activeIdRef.current !== id && startRef.current) {
+        const running = Math.floor((Date.now() - startRef.current) / 1000);
+        const prev = activeIdRef.current;
+        setAccumulated(acc => {
+          const updated = { ...acc, [prev]: (acc[prev] ?? 0) + running };
+          persistAccumulated(userIdRef.current, updated);
+          return updated;
+        });
+      }
+
+      setActiveId(id);
+      setActiveEntryId(data?.id ?? null);
+      setActiveTitle(title);
+      startRef.current = startedAt;
+      setStartedAtMs(startedAt);
+      persistSession(userIdRef.current, { id, title, startedAt });
+    });
+  }, [enqueue, hydrateFromDb]);
+
+  const registerRunningFlush = useCallback((fn: (() => Promise<void>) | null) => {
+    runningFlushRef.current = fn;
+  }, []);
+
+  const stopTask = useCallback(async (opts?: { localOnly?: boolean }) => {
+    await enqueue(async () => {
+      if (!opts?.localOnly) {
+        try {
+          await runningFlushRef.current?.();
+        } catch {
+          // Stop trotzdem ausführen
+        }
+        if (!activeIdRef.current && !activeEntryIdRef.current) return;
+        const r = await fetch('/api/time-entries/stop', { method: 'POST' });
+        if (!r.ok) return;
+      }
+
+      if (!opts?.localOnly && activeIdRef.current && startRef.current) {
+        const runningSecs = Math.floor((Date.now() - startRef.current) / 1000);
+        const id = activeIdRef.current;
+        setAccumulated(acc => {
+          const updated = { ...acc, [id]: (acc[id] ?? 0) + runningSecs };
+          persistAccumulated(userIdRef.current, updated);
+          return updated;
+        });
+      }
+
+      persistSession(userIdRef.current, null);
       startRef.current = null;
+      setStartedAtMs(null);
       setActiveId(null);
       setActiveEntryId(null);
       setActiveTitle(null);
-      persistSession(userIdRef.current, null);
-    } catch {
-      // lokal weiterlaufen lassen, DB ist Quelle
-    } finally {
-      mutatingRef.current -= 1;
-    }
-  }
+    });
+  }, [enqueue]);
 
-  function updateActiveTitle(title: string) {
+  const updateActiveTitle = useCallback((title: string) => {
     setActiveTitle(title);
-    if (!activeId || !startRef.current) return;
-    persistSession(userIdRef.current, { id: activeId, title, startedAt: startRef.current });
-  }
+    if (!activeIdRef.current || !startRef.current) return;
+    persistSession(userIdRef.current, {
+      id: activeIdRef.current,
+      title,
+      startedAt: startRef.current,
+    });
+  }, []);
 
-  async function finishTask(id: string): Promise<number> {
+  const beginTimerEdit = useCallback(() => {
+    editCountRef.current += 1;
+  }, []);
+
+  const endTimerEdit = useCallback(() => {
+    editCountRef.current = Math.max(0, editCountRef.current - 1);
+  }, []);
+
+  const syncRunningStartedAt = useCallback((nextMs: number) => {
+    if (!activeIdRef.current) return;
+    startRef.current = nextMs;
+    setStartedAtMs(nextMs);
+    persistSession(userIdRef.current, {
+      id: activeIdRef.current,
+      title: activeTitleRef.current ?? '',
+      startedAt: nextMs,
+    });
+  }, []);
+
+  const finishTask = useCallback(async (id: string): Promise<number> => {
     const total = getTaskSecs(id);
-
-    if (activeId === id) {
-      mutatingRef.current += 1;
-      try {
-        const r = await fetch('/api/time-entries/stop', { method: 'POST' });
-        if (!r.ok) return total;
-        startRef.current = null;
-        setActiveId(null);
-        setActiveEntryId(null);
-        setActiveTitle(null);
-        persistSession(userIdRef.current, null);
-      } catch {
-        return total;
-      } finally {
-        mutatingRef.current -= 1;
-      }
-    }
-
-    const updated = { ...accumulated };
-    delete updated[id];
-    setAccumulated(updated);
-    persistAccumulated(userIdRef.current, updated);
-
+    if (activeIdRef.current === id) await stopTask();
+    setAccumulated(acc => {
+      if (!(id in acc)) return acc;
+      const updated = { ...acc };
+      delete updated[id];
+      persistAccumulated(userIdRef.current, updated);
+      return updated;
+    });
     return total;
-  }
+  }, [getTaskSecs, stopTask]);
 
-  void tick;
+  const value = useMemo(() => ({
+    userId,
+    activeId,
+    activeEntryId,
+    activeTitle,
+    pending,
+    startedAtMs,
+    getTaskSecs,
+    startTask,
+    stopTask,
+    updateActiveTitle,
+    beginTimerEdit,
+    endTimerEdit,
+    registerRunningFlush,
+    syncRunningStartedAt,
+    finishTask,
+  }), [
+    userId, activeId, activeEntryId, activeTitle, pending, startedAtMs,
+    getTaskSecs, startTask, stopTask, updateActiveTitle,
+    beginTimerEdit, endTimerEdit, registerRunningFlush, syncRunningStartedAt, finishTask,
+  ]);
 
   return (
-    <TimerContext.Provider value={{
-      userId,
-      activeId,
-      activeEntryId,
-      activeTitle,
-      liveSecs,
-      fmtLive: fmtHms(liveSecs),
-      getTaskSecs,
-      startTask,
-      stopTask,
-      updateActiveTitle,
-      finishTask,
-    }}>
-      {children}
+    <TimerContext.Provider value={value}>
+      <TimerTick activeId={activeId} startRef={startRef}>
+        {children}
+      </TimerTick>
     </TimerContext.Provider>
   );
 }
 
+type TickContextType = { now: number; liveSecs: number; fmtLive: string };
+
+const TickContext = createContext<TickContextType>({
+  now: 0,
+  liveSecs: 0,
+  fmtLive: '00:00:00',
+});
+
+function TimerTick({
+  activeId,
+  startRef,
+  children,
+}: {
+  activeId: string | null;
+  startRef: MutableRefObject<number | null>;
+  children: ReactNode;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(iv);
+  }, []);
+  const liveSecs = activeId && startRef.current
+    ? Math.max(0, Math.floor((now - startRef.current) / 1000))
+    : 0;
+  const tickValue = useMemo(
+    () => ({ now, liveSecs, fmtLive: fmtHms(liveSecs) }),
+    [now, liveSecs],
+  );
+  return <TickContext.Provider value={tickValue}>{children}</TickContext.Provider>;
+}
+
 export function useTimer() {
   return useContext(TimerContext);
+}
+
+export function useTimerTick() {
+  return useContext(TickContext);
 }

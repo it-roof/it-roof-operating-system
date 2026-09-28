@@ -5,7 +5,7 @@ import { ChevronDownIcon } from 'lucide-react';
 import { TaskRow } from '@/components/task-row';
 import { type Task, type SharedProps } from '@/lib/types';
 import { fmtMin } from '@/lib/task-utils';
-import { useTimer } from '@/lib/timer-context';
+import { useTimer, useTimerTick } from '@/lib/timer-context';
 
 type Props = {
   projekt: string;
@@ -16,6 +16,7 @@ type Props = {
 export function ProjektGroup({ projekt, firma, tasks, ...rest }: Props) {
   const [open, setOpen] = useState(true);
   const { getTaskSecs } = useTimer();
+  useTimerTick();
   const total = tasks.reduce((s, t) => s + Math.round(getTaskSecs(t.id) / 60) + (t.zeit_minuten ?? 0), 0);
   const hasHigh = tasks.some(t => t.prio === 'high');
 

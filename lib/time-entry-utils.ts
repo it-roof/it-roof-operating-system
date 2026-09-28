@@ -87,6 +87,13 @@ export function applyEndClock(startIso: string, clock: { h: number; m: number })
   return end;
 }
 
+/** Gleiche Uhrzeit wie der Start = 0 Dauer, sonst Ende (über Nacht wenn früher). */
+export function stoppedAtFromClock(startIso: string, clock: { h: number; m: number }) {
+  const start = parseClock(fmtClock(startIso));
+  if (start && start.h === clock.h && start.m === clock.m) return startIso;
+  return applyEndClock(startIso, clock);
+}
+
 export function shiftToLocalDate(iso: string, ymd: string) {
   const d = new Date(iso);
   const [y, m, day] = ymd.split('-').map(Number);

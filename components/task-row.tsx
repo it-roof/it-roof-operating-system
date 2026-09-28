@@ -10,7 +10,7 @@ import {
 import { PlayIcon, SquareIcon, CheckIcon, Trash2Icon } from 'lucide-react';
 import { type Task, type SharedProps } from '@/lib/types';
 import { fmtSec, fmtMin } from '@/lib/task-utils';
-import { useTimer } from '@/lib/timer-context';
+import { useTimer, useTimerTick } from '@/lib/timer-context';
 
 const PRIO_BAR: Record<string, string> = {
   high: 'bg-danger',
@@ -26,7 +26,8 @@ const PRIO_ROW_BG: Record<string, string> = {
 
 export function TaskRow({ task, compact, onDone, onSaveTitle, onDelete }:
   { task: Task; compact?: boolean } & SharedProps) {
-  const { activeId, startTask, stopTask, getTaskSecs } = useTimer();
+  const { activeId, pending, startTask, stopTask, getTaskSecs } = useTimer();
+  useTimerTick();
   const isRunning = activeId === task.id;
   const isBusy = !!activeId && !isRunning;
   const taskSecs = getTaskSecs(task.id);
@@ -89,7 +90,7 @@ export function TaskRow({ task, compact, onDone, onSaveTitle, onDelete }:
             <span className="text-xs font-mono font-bold tabular-nums mr-1.5">
               {fmtSec(taskSecs)}
             </span>
-            <Button size="icon" variant="warning" onClick={stopTask} className="size-8">
+            <Button size="icon" variant="warning" disabled={pending} onClick={() => void stopTask()} className="size-8">
               <SquareIcon className="size-3.5" />
             </Button>
           </>
@@ -103,8 +104,8 @@ export function TaskRow({ task, compact, onDone, onSaveTitle, onDelete }:
               <span className="text-[11px] font-mono text-muted-foreground mr-1">{fmtMin(task.zeit_minuten)}</span>
             ) : null}
             <Button size="icon" variant="ghost"
-              onClick={() => startTask(task.id, task.title)}
-              disabled={isBusy}
+              onClick={() => void startTask(task.id, task.title)}
+              disabled={isBusy || pending}
               className="size-8 text-muted-foreground hover:text-foreground">
               <PlayIcon className="size-3.5" />
             </Button>

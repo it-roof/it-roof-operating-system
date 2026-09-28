@@ -35,23 +35,28 @@ export async function PATCH(
     return NextResponse.json({ error: 'Eintrag nicht gefunden' }, { status: 404 });
   }
 
-  let startedAt = body.started_at ?? existing?.startedAt ?? new Date().toISOString();
-  let stoppedAt: string | null =
-    body.stopped_at !== undefined
-      ? body.stopped_at
-      : (existing?.stoppedAt ?? null);
+  const hasTimeChange =
+    body.started_at !== undefined ||
+    body.stopped_at !== undefined ||
+    body.duration_seconds != null ||
+    body.date !== undefined;
 
-  if (body.date) {
-    startedAt = shiftToLocalDate(startedAt, body.date);
-    if (stoppedAt) stoppedAt = shiftToLocalDate(stoppedAt, body.date);
-  }
+  let startedAt = existing?.startedAt ?? new Date().toISOString();
+  let stoppedAt: string | null = existing?.stoppedAt ?? null;
 
-  if (body.duration_seconds != null) {
-    stoppedAt = addSeconds(startedAt, Math.max(0, body.duration_seconds));
-  }
-
-  if (stoppedAt && new Date(stoppedAt).getTime() < new Date(startedAt).getTime()) {
-    return NextResponse.json({ error: 'Ende liegt vor dem Start' }, { status: 400 });
+  if (hasTimeChange) {
+    if (body.started_at !== undefined) startedAt = body.started_at;
+    if (body.stopped_at !== undefined) stoppedAt = body.stopped_at;
+    if (body.date) {
+      startedAt = shiftToLocalDate(startedAt, body.date);
+      if (stoppedAt) stoppedAt = shiftToLocalDate(stoppedAt, body.date);
+    }
+    if (body.duration_seconds != null) {
+      stoppedAt = addSeconds(startedAt, Math.max(0, body.duration_seconds));
+    }
+    if (stoppedAt && new Date(stoppedAt).getTime() < new Date(startedAt).getTime()) {
+      return NextResponse.json({ error: 'Ende liegt vor dem Start' }, { status: 400 });
+    }
   }
 
   if (body.project_id !== undefined && await otherUsersHaveEntries(taskId, userId)) {
@@ -61,7 +66,9 @@ export async function PATCH(
     );
   }
 
-  const durationSeconds = durationOf(startedAt, stoppedAt);
+  const durationSeconds = hasTimeChange
+    ? durationOf(startedAt, stoppedAt)
+    : (existing?.durationSeconds ?? 0);
 
   let entryId = existing?.id;
   if (isLegacy) {
@@ -78,12 +85,21 @@ export async function PATCH(
       .returning({ id: timeEntry.id });
     entryId = row.id;
   } else {
-    await db.update(timeEntry).set({
-      startedAt,
-      stoppedAt,
-      durationSeconds,
-      ...(body.title !== undefined ? { title: body.title.trim() || null } : {}),
-    }).where(and(eq(timeEntry.id, id), eq(timeEntry.userId, userId)));
+    const patch: {
+      title?: string | null;
+      startedAt?: string;
+      stoppedAt?: string | null;
+      durationSeconds?: number;
+    } = {};
+    if (body.title !== undefined) patch.title = body.title.trim() || null;
+    if (hasTimeChange) {
+      patch.startedAt = startedAt;
+      patch.stoppedAt = stoppedAt;
+      patch.durationSeconds = durationSeconds;
+    }
+    if (Object.keys(patch).length > 0) {
+      await db.update(timeEntry).set(patch).where(and(eq(timeEntry.id, id), eq(timeEntry.userId, userId)));
+    }
   }
 
   if (body.project_id !== undefined) {

@@ -17,12 +17,12 @@ import { useTimer } from '@/lib/timer-context';
 import { type Task, type TrackerProject } from '@/lib/types';
 import { ensureTask } from '@/lib/ensure-task';
 import {
-  applyEndClock,
   combineLocal,
   fmtHms,
   parseClock,
   parseHms,
   secondsBetween,
+  stoppedAtFromClock,
 } from '@/lib/time-entry-utils';
 
 type Props = {
@@ -61,7 +61,7 @@ export function TimeEntryDialog({ open, date, tasks, projects, onClose, onSaved 
     const ec = parseClock(end);
     if (!sc || !ec) return;
     const started = combineLocal(date, sc);
-    const stopped = applyEndClock(started, ec);
+    const stopped = stoppedAtFromClock(started, ec);
     setDuration(fmtHms(secondsBetween(started, stopped)));
   }
 
@@ -91,7 +91,7 @@ export function TimeEntryDialog({ open, date, tasks, projects, onClose, onSaved 
         return;
       }
       const started_at = combineLocal(date, sc);
-      const stopped_at = applyEndClock(started_at, ec);
+      const stopped_at = stoppedAtFromClock(started_at, ec);
       const r = await fetch('/api/time-entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -6,7 +6,7 @@ import { type Task } from '@/lib/types';
 type SetTasks = React.Dispatch<React.SetStateAction<Task[]>>;
 
 export function useTaskMutations(setTasks: SetTasks) {
-  const { activeId, finishTask, updateActiveTitle } = useTimer();
+  const { activeId, finishTask } = useTimer();
 
   async function doneTask(id: string) {
     const totalSecs = await finishTask(id);
@@ -34,7 +34,6 @@ export function useTaskMutations(setTasks: SetTasks) {
       body: JSON.stringify({ title: newTitle }),
     });
     setTasks(ts => ts.map(t => t.id === id ? { ...t, title: newTitle } : t));
-    if (activeId === id) updateActiveTitle(newTitle);
   }
 
   return { doneTask, deleteTask, saveTitle };

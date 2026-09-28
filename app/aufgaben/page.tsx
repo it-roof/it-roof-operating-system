@@ -101,7 +101,7 @@ export default function AufgabenPage() {
         </Tabs>
 
         {view === 'zeit' ? (
-          loading ? (
+          loading && tasks.length === 0 ? (
             <div className="flex flex-col gap-3">
               <Skeleton className="h-20 rounded-xl" />
               {[80, 60, 70].map(w => <Skeleton key={w} className="h-14 rounded-xl" style={{ width: `${w}%` }} />)}

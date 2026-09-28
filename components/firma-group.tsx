@@ -5,11 +5,12 @@ import { ChevronDownIcon } from 'lucide-react';
 import { TaskRow } from '@/components/task-row';
 import { type Task, type SharedProps } from '@/lib/types';
 import { fmtMin } from '@/lib/task-utils';
-import { useTimer } from '@/lib/timer-context';
+import { useTimer, useTimerTick } from '@/lib/timer-context';
 
 export function FirmaGroup({ firma, tasks, ...rest }: { firma: string; tasks: Task[] } & SharedProps) {
   const [open, setOpen] = useState(true);
   const { getTaskSecs } = useTimer();
+  useTimerTick();
   const total = tasks.reduce((s, t) => s + Math.round(getTaskSecs(t.id) / 60) + (t.zeit_minuten ?? 0), 0);
   const hasHigh = tasks.some(t => t.prio === 'high');
 
