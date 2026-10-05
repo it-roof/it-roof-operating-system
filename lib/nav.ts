@@ -12,6 +12,8 @@ import {
   SearchIcon,
   LayoutDashboardIcon,
   InboxIcon,
+  MailIcon,
+  Settings2Icon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -22,7 +24,7 @@ export type NavLink = {
 };
 
 export type OsArea = {
-  id: 'aufgaben' | 'studio' | 'leads';
+  id: 'aufgaben' | 'studio' | 'leads' | 'mail';
   label: string;
   icon: LucideIcon;
   /** Landing when switching into this area */
@@ -71,6 +73,17 @@ export const OS_AREAS: OsArea[] = [
       { href: '/leads/kampagnen', label: 'Kampagnen', icon: MegaphoneIcon },
       { href: '/leads/zuordnungen', label: 'Zuordnungen', icon: Link2Icon },
       { href: '/leads/suchen', label: 'Suchen', icon: SearchIcon },
+    ],
+  },
+  {
+    id: 'mail',
+    label: 'E-Mail',
+    icon: MailIcon,
+    href: '/mail',
+    match: ['/mail'],
+    links: [
+      { href: '/mail', label: 'Postfach', icon: InboxIcon },
+      { href: '/mail/konten', label: 'Konten', icon: Settings2Icon },
     ],
   },
 ];

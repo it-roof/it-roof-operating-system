@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, index, uniqueIndex, foreignKey, check, date, integer, time, boolean, numeric, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, index, uniqueIndex, foreignKey, check, date, integer, bigint, time, boolean, numeric, primaryKey } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
 export const company = pgTable('company', {
@@ -383,4 +383,85 @@ export const mailAccount = pgTable('mail_account', {
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
 }, (table) => [
   index('idx_mail_account_active').using('btree', table.active.asc().nullsLast()),
+]);
+
+/** Persönliche IMAP/SMTP-Konten (nicht Outreach). Passwort AES-GCM. */
+export const mailbox = pgTable('mailbox', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(),
+  displayName: text('display_name'),
+  imapHost: text('imap_host').notNull(),
+  imapPort: integer('imap_port').notNull().default(993),
+  imapSecure: boolean('imap_secure').notNull().default(true),
+  smtpHost: text('smtp_host').notNull(),
+  smtpPort: integer('smtp_port').notNull().default(587),
+  smtpSecure: boolean('smtp_secure').notNull().default(false),
+  username: text('username').notNull(),
+  passwordEncrypted: text('password_encrypted').notNull(),
+  lastSyncAt: timestamp('last_sync_at', { withTimezone: true, mode: 'date' }),
+  lastSyncError: text('last_sync_error'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('mailbox_user_email_unique').on(table.userId, table.email),
+  index('idx_mailbox_user').using('btree', table.userId.asc().nullsLast().op('text_ops')),
+]);
+
+export const mailboxFolder = pgTable('mailbox_folder', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  mailboxId: uuid('mailbox_id').notNull().references(() => mailbox.id, { onDelete: 'cascade' }),
+  imapPath: text('imap_path').notNull(),
+  name: text('name').notNull(),
+  role: text('role').notNull().default('other'),
+  uidValidity: bigint('uid_validity', { mode: 'number' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('mailbox_folder_path_unique').on(table.mailboxId, table.imapPath),
+  index('idx_mailbox_folder_mailbox').using('btree', table.mailboxId.asc().nullsLast().op('uuid_ops')),
+]);
+
+export const mailboxMessage = pgTable('mailbox_message', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  mailboxId: uuid('mailbox_id').notNull().references(() => mailbox.id, { onDelete: 'cascade' }),
+  folderId: uuid('folder_id').notNull().references(() => mailboxFolder.id, { onDelete: 'cascade' }),
+  uid: bigint('uid', { mode: 'number' }),
+  messageIdHeader: text('message_id_header'),
+  inReplyTo: text('in_reply_to'),
+  referencesHeader: text('references_header'),
+  threadId: text('thread_id').notNull(),
+  fromName: text('from_name'),
+  fromAddress: text('from_address'),
+  toAddresses: text('to_addresses'),
+  ccAddresses: text('cc_addresses'),
+  subject: text('subject'),
+  date: timestamp('date', { withTimezone: true, mode: 'date' }),
+  seen: boolean('seen').notNull().default(false),
+  flagged: boolean('flagged').notNull().default(false),
+  draft: boolean('draft').notNull().default(false),
+  answered: boolean('answered').notNull().default(false),
+  snippet: text('snippet'),
+  textBody: text('text_body'),
+  htmlBody: text('html_body'),
+  hasAttachments: boolean('has_attachments').notNull().default(false),
+  size: integer('size').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('mailbox_message_folder_uid_unique').on(table.folderId, table.uid).where(sql`${table.uid} is not null`),
+  index('idx_mailbox_message_folder_date').using('btree', table.folderId.asc().nullsLast().op('uuid_ops'), table.date.desc().nullsLast()),
+  index('idx_mailbox_message_mailbox_date').using('btree', table.mailboxId.asc().nullsLast().op('uuid_ops'), table.date.desc().nullsLast()),
+  index('idx_mailbox_message_thread').using('btree', table.threadId.asc().nullsLast().op('text_ops')),
+]);
+
+export const mailboxAttachment = pgTable('mailbox_attachment', {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  messageId: uuid('message_id').notNull().references(() => mailboxMessage.id, { onDelete: 'cascade' }),
+  filename: text('filename'),
+  contentType: text('content_type'),
+  size: integer('size').notNull().default(0),
+  contentBase64: text('content_base64'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+}, (table) => [
+  index('idx_mailbox_attachment_message').using('btree', table.messageId.asc().nullsLast().op('uuid_ops')),
 ]);
