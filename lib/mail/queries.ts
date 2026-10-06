@@ -13,6 +13,8 @@ export async function listFolders(userId: string, mailboxId?: string | null): Pr
   if (!ids.length) return [];
 
   const folders = await db.select().from(mailboxFolder).where(inArray(mailboxFolder.mailboxId, ids));
+  if (!folders.length) return [];
+
   const unreadRows = await db
     .select({
       folderId: mailboxMessage.folderId,

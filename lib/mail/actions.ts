@@ -16,17 +16,21 @@ export async function setMessageFlags(opts: {
   if (!creds) return null;
 
   if (msg.uid != null) {
-    await withImap(creds, async client => {
-      const lock = await client.getMailboxLock(msg.imapPath);
-      try {
-        if (opts.seen === true) await client.messageFlagsAdd(msg.uid!, ['\\Seen'], { uid: true });
-        if (opts.seen === false) await client.messageFlagsRemove(msg.uid!, ['\\Seen'], { uid: true });
-        if (opts.flagged === true) await client.messageFlagsAdd(msg.uid!, ['\\Flagged'], { uid: true });
-        if (opts.flagged === false) await client.messageFlagsRemove(msg.uid!, ['\\Flagged'], { uid: true });
-      } finally {
-        lock.release();
-      }
-    });
+    try {
+      await withImap(creds, async client => {
+        const lock = await client.getMailboxLock(msg.imapPath);
+        try {
+          if (opts.seen === true) await client.messageFlagsAdd(msg.uid!, ['\\Seen'], { uid: true });
+          if (opts.seen === false) await client.messageFlagsRemove(msg.uid!, ['\\Seen'], { uid: true });
+          if (opts.flagged === true) await client.messageFlagsAdd(msg.uid!, ['\\Flagged'], { uid: true });
+          if (opts.flagged === false) await client.messageFlagsRemove(msg.uid!, ['\\Flagged'], { uid: true });
+        } finally {
+          lock.release();
+        }
+      });
+    } catch {
+      // Flag in HQ trotzdem setzen, IMAP folgt beim nächsten Sync
+    }
   }
 
   const patch: { seen?: boolean; flagged?: boolean; updatedAt: Date } = { updatedAt: new Date() };

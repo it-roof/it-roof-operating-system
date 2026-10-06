@@ -58,12 +58,18 @@ export async function testMailboxConnection(input: {
 
 export function folderRole(path: string, specialUse?: string | string[] | null, listedName?: string) {
   const special = Array.isArray(specialUse) ? specialUse.join(' ') : (specialUse ?? '');
-  const hay = `${path} ${listedName ?? ''} ${special}`.toLowerCase();
   if (path.toUpperCase() === 'INBOX' || special.includes('\\Inbox')) return 'inbox';
-  if (special.includes('\\Sent') || /(^|\/)(sent|gesendet|sent items)/i.test(hay)) return 'sent';
-  if (special.includes('\\Drafts') || /(^|\/)(drafts|entw[uü]rfe)/i.test(hay)) return 'drafts';
-  if (special.includes('\\Trash') || /(^|\/)(trash|deleted|papierkorb|deleted items)/i.test(hay)) return 'trash';
-  if (special.includes('\\Junk') || /(^|\/)(junk|spam)/i.test(hay)) return 'junk';
-  if (special.includes('\\Archive') || /(^|\/)(archive|archiv)/i.test(hay)) return 'archive';
+  if (special.includes('\\Sent')) return 'sent';
+  if (special.includes('\\Drafts')) return 'drafts';
+  if (special.includes('\\Trash')) return 'trash';
+  if (special.includes('\\Junk')) return 'junk';
+  if (special.includes('\\Archive')) return 'archive';
+  const hay = `${path} ${listedName ?? ''}`.toLowerCase().replace(/\\/g, '/');
+  const last = hay.split(/[./]/).pop() ?? hay;
+  if (/(^|[./\s])(sent|gesendet|sent items|gesendete objekte)(\b|$)/i.test(hay) || last === 'sent' || last === 'gesendet') return 'sent';
+  if (/(^|[./\s])(drafts|entw[uü]rfe)(\b|$)/i.test(hay) || last === 'drafts') return 'drafts';
+  if (/(^|[./\s])(trash|deleted|papierkorb|deleted items|papierkorb)(\b|$)/i.test(hay) || last === 'trash' || last === 'papierkorb') return 'trash';
+  if (/(^|[./\s])(junk|spam)(\b|$)/i.test(hay) || last === 'junk' || last === 'spam') return 'junk';
+  if (/(^|[./\s])(archive|archiv)(\b|$)/i.test(hay) || last === 'archive' || last === 'archiv') return 'archive';
   return 'other';
 }

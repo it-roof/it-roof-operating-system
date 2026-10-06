@@ -14,6 +14,7 @@ import {
   InboxIcon,
   MailIcon,
   Settings2Icon,
+  FileBarChartIcon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -40,12 +41,13 @@ export const OS_AREAS: OsArea[] = [
     label: 'Aufgaben',
     icon: ListTodoIcon,
     href: '/',
-    match: ['/', '/aufgaben', '/kunden', '/projekte'],
+    match: ['/', '/aufgaben', '/kunden', '/projekte', '/monatsberichte'],
     links: [
       { href: '/', label: 'Heute', icon: CalendarDaysIcon },
       { href: '/aufgaben', label: 'Aufgaben', icon: ListTodoIcon },
       { href: '/kunden', label: 'Kunden', icon: UsersIcon },
       { href: '/projekte', label: 'Projekte', icon: FolderIcon },
+      { href: '/monatsberichte', label: 'Monatsberichte', icon: FileBarChartIcon },
     ],
   },
   {

@@ -46,6 +46,8 @@ const ROLE_ICON: Record<string, typeof InboxIcon> = {
   trash: Trash2Icon,
 };
 
+const SYSTEM_ROLES = ['inbox', 'drafts', 'sent', 'archive', 'junk', 'trash'] as const;
+
 type ComposeState = {
   mode: 'new' | 'reply' | 'replyAll' | 'forward' | 'draft';
   source?: MailMessageDetail | null;
@@ -173,22 +175,31 @@ export function MailApp() {
   }
 
   const groupedFolders = useMemo(() => {
-    if (mailboxId === 'all') {
-      const byRole = new Map<string, MailFolder>();
-      for (const f of folders) {
+    const source = mailboxId === 'all' ? folders : folders.filter(f => f.mailbox_id === mailboxId);
+    const byRole = new Map<string, MailFolder>();
+    const others: MailFolder[] = [];
+    for (const f of source) {
+      if ((SYSTEM_ROLES as readonly string[]).includes(f.role)) {
         const cur = byRole.get(f.role);
         if (!cur) {
-          byRole.set(f.role, { ...f, id: `role:${f.role}`, name: ROLE_DE[f.role] ?? f.name, unread: f.unread });
+          byRole.set(f.role, {
+            ...f,
+            id: `role:${f.role}`,
+            name: ROLE_DE[f.role] ?? f.name,
+            unread: f.unread,
+          });
         } else {
           cur.unread += f.unread;
         }
+      } else {
+        others.push(f);
       }
-      return [...byRole.values()];
     }
-    return folders.filter(f => f.mailbox_id === mailboxId);
+    return [
+      ...SYSTEM_ROLES.map(r => byRole.get(r)).filter((f): f is MailFolder => Boolean(f)),
+      ...others.sort((a, b) => a.name.localeCompare(b.name, 'de')),
+    ];
   }, [folders, mailboxId]);
-
-  const selectedFolderKey = folderId ?? `role:${role}`;
 
   if (!loading && boxes.length === 0) {
     return (
@@ -255,14 +266,16 @@ export function MailApp() {
           <nav className="h-full overflow-y-auto py-2">
             {groupedFolders.map(f => {
               const Icon = ROLE_ICON[f.role] ?? MailIcon;
-              const key = mailboxId === 'all' ? `role:${f.role}` : f.id;
-              const active = selectedFolderKey === key;
+              const key = f.id.startsWith('role:') ? f.id : f.id;
+              const active = f.id.startsWith('role:')
+                ? !folderId && role === f.role
+                : folderId === f.id;
               return (
                 <button
                   key={key}
                   type="button"
                   onClick={() => {
-                    if (mailboxId === 'all') {
+                    if (f.id.startsWith('role:')) {
                       setFolderId(null);
                       setRole(f.role);
                     } else {
@@ -278,7 +291,7 @@ export function MailApp() {
                   )}
                 >
                   <Icon className="size-3.5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{mailboxId === 'all' ? (ROLE_DE[f.role] ?? f.name) : f.name}</span>
+                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
                   {f.unread > 0 && (
                     <span className="font-mono text-[11px] tabular-nums">{f.unread}</span>
                   )}

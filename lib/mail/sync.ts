@@ -187,6 +187,29 @@ async function runSync(creds: MailboxCredentials, client: Awaited<ReturnType<typ
         const references = Array.isArray(parsed.references)
           ? parsed.references.join(' ')
           : (parsed.references ?? null);
+
+        if (messageId) {
+          const [dup] = await db
+            .select({ id: mailboxMessage.id })
+            .from(mailboxMessage)
+            .where(and(eq(mailboxMessage.folderId, folder.id), eq(mailboxMessage.messageIdHeader, messageId)))
+            .limit(1);
+          if (dup) {
+            await db
+              .update(mailboxMessage)
+              .set({
+                uid,
+                seen: fl.seen,
+                flagged: fl.flagged,
+                draft: fl.draft,
+                answered: fl.answered,
+                updatedAt: new Date(),
+              })
+              .where(eq(mailboxMessage.id, dup.id));
+            knownByUid.set(uid, dup.id);
+            continue;
+          }
+        }
         const html = clip(typeof parsed.html === 'string' ? parsed.html : null, MAX_HTML);
         const text = clip(parsed.text ?? null, MAX_TEXT);
         const attachments = (parsed.attachments ?? []).filter(a => !a.related);

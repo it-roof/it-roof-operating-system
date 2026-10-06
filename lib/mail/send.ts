@@ -1,12 +1,17 @@
 import nodemailer from 'nodemailer';
+import MailComposer from 'nodemailer/lib/mail-composer';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { mailboxFolder, mailboxMessage } from '@/lib/schema';
 import { getMailboxCredentials } from '@/lib/mail/mailbox';
 import { withImap } from '@/lib/mail/imap';
-import { stringifyAddressList, threadIdFromHeaders } from '@/lib/mail/thread';
+import { snippetFrom, stringifyAddressList, threadIdFromHeaders } from '@/lib/mail/thread';
 
 type Addr = { name?: string | null; address: string };
+
+function formatAddr(a: Addr) {
+  return a.name ? `"${a.name}" <${a.address}>` : a.address;
+}
 
 export async function sendMail(opts: {
   mailboxId: string;
@@ -23,6 +28,20 @@ export async function sendMail(opts: {
   if (!creds) throw new Error('Postfach nicht gefunden');
   if (!opts.to.length) throw new Error('Empfänger fehlt');
 
+  const from = creds.displayName ? `"${creds.displayName}" <${creds.email}>` : creds.email;
+  const mailOpts = {
+    from,
+    to: opts.to.map(formatAddr),
+    cc: opts.cc?.length ? opts.cc.map(formatAddr) : undefined,
+    subject: opts.subject,
+    text: opts.text,
+    inReplyTo: opts.inReplyTo ?? undefined,
+    references: opts.references ?? undefined,
+    date: new Date(),
+  };
+
+  const raw: Buffer = await new MailComposer(mailOpts).compile().build();
+
   const transporter = nodemailer.createTransport({
     host: creds.smtpHost,
     port: creds.smtpPort,
@@ -31,34 +50,57 @@ export async function sendMail(opts: {
     requireTLS: !creds.smtpSecure && creds.smtpPort !== 465,
   });
 
-  const from = creds.displayName ? `"${creds.displayName}" <${creds.email}>` : creds.email;
+  const envelopeTo = [
+    ...opts.to.map(a => a.address),
+    ...(opts.cc ?? []).map(a => a.address),
+  ];
   const info = await transporter.sendMail({
-    from,
-    to: opts.to.map(a => a.name ? `"${a.name}" <${a.address}>` : a.address),
-    cc: opts.cc?.length ? opts.cc.map(a => a.name ? `"${a.name}" <${a.address}>` : a.address) : undefined,
-    subject: opts.subject,
-    text: opts.text,
-    inReplyTo: opts.inReplyTo ?? undefined,
-    references: opts.references ?? undefined,
+    envelope: { from: creds.email, to: envelopeTo },
+    raw,
   });
 
-  const raw = typeof info.message === 'string'
-    ? Buffer.from(info.message)
-    : Buffer.from(buildRaw(from, opts));
-
-  const sentFolder = await db
+  const sentFolder = (await db
     .select()
     .from(mailboxFolder)
-    .where(and(eq(mailboxFolder.mailboxId, creds.id), eq(mailboxFolder.role, 'sent')))
-    .then(r => r[0] ?? null);
+    .where(and(eq(mailboxFolder.mailboxId, creds.id), eq(mailboxFolder.role, 'sent'))))[0] ?? null;
 
+  let uid: number | null = null;
   if (sentFolder) {
-    await withImap(creds, async client => {
-      try {
-        await client.append(sentFolder.imapPath, raw, ['\\Seen']);
-      } catch {
-        // Sent-Kopie optional
-      }
+    try {
+      await withImap(creds, async client => {
+        const appended = await client.append(sentFolder.imapPath, raw, ['\\Seen']);
+        if (appended && typeof appended === 'object' && 'uid' in appended && appended.uid != null) {
+          uid = Number(appended.uid);
+        }
+      });
+    } catch {
+      // Mail ist schon raus — Gesendet-Kopie folgt beim Sync
+    }
+
+    const messageId = typeof info.messageId === 'string' ? info.messageId : null;
+    await db.insert(mailboxMessage).values({
+      mailboxId: creds.id,
+      folderId: sentFolder.id,
+      uid,
+      messageIdHeader: messageId,
+      inReplyTo: opts.inReplyTo ?? null,
+      referencesHeader: opts.references ?? null,
+      threadId: threadIdFromHeaders(messageId, opts.inReplyTo, opts.references),
+      fromName: creds.displayName,
+      fromAddress: creds.email,
+      toAddresses: stringifyAddressList(opts.to),
+      ccAddresses: stringifyAddressList(opts.cc),
+      subject: opts.subject || '(Kein Betreff)',
+      date: new Date(),
+      seen: true,
+      flagged: false,
+      draft: false,
+      answered: false,
+      snippet: snippetFrom(opts.text, null),
+      textBody: opts.text,
+      htmlBody: null,
+      hasAttachments: false,
+      size: raw.length,
     });
   }
 
@@ -70,29 +112,6 @@ export async function sendMail(opts: {
   }
 
   return { messageId: info.messageId as string | undefined };
-}
-
-function buildRaw(from: string, opts: {
-  to: Addr[];
-  cc?: Addr[];
-  subject: string;
-  text: string;
-  inReplyTo?: string | null;
-  references?: string | null;
-}) {
-  const lines = [
-    `From: ${from}`,
-    `To: ${opts.to.map(a => a.address).join(', ')}`,
-    opts.cc?.length ? `Cc: ${opts.cc.map(a => a.address).join(', ')}` : null,
-    `Subject: ${opts.subject}`,
-    opts.inReplyTo ? `In-Reply-To: ${opts.inReplyTo}` : null,
-    opts.references ? `References: ${opts.references}` : null,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=utf-8',
-    '',
-    opts.text,
-  ].filter(line => line != null);
-  return lines.join('\r\n');
 }
 
 export async function saveDraft(opts: {
@@ -119,7 +138,7 @@ export async function saveDraft(opts: {
       .insert(mailboxFolder)
       .values({
         mailboxId: creds.id,
-        imapPath: 'Drafts',
+        imapPath: '__local_drafts__',
         name: 'Entwürfe',
         role: 'drafts',
       })

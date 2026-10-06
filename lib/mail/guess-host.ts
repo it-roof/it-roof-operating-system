@@ -13,6 +13,9 @@ const PRESETS: Record<string, { imapHost: string; smtpHost: string; smtpPort: nu
   'gmx.net': { imapHost: 'imap.gmx.net', smtpHost: 'mail.gmx.net', smtpPort: 587, smtpSecure: false },
   'web.de': { imapHost: 'imap.web.de', smtpHost: 'smtp.web.de', smtpPort: 587, smtpSecure: false },
   't-online.de': { imapHost: 'secureimap.t-online.de', smtpHost: 'securesmtp.t-online.de', smtpPort: 587, smtpSecure: false },
+  'kasserver.com': { imapHost: 'imap.kasserver.com', smtpHost: 'smtp.kasserver.com', smtpPort: 587, smtpSecure: false },
+  'all-inkl.com': { imapHost: 'imap.kasserver.com', smtpHost: 'smtp.kasserver.com', smtpPort: 587, smtpSecure: false },
+  'all-inkl.de': { imapHost: 'imap.kasserver.com', smtpHost: 'smtp.kasserver.com', smtpPort: 587, smtpSecure: false },
 };
 
 export function guessMailHosts(email: string) {
