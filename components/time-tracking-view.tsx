@@ -131,6 +131,7 @@ export function TimeTrackingView({ tasks, onCreated }: Props) {
         projects={projectList}
         activeEntryId={activeEntryId}
         onPatched={upsertEntry}
+        onSplitDone={refresh}
         onPlay={playEntry}
         onStop={stopRunning}
         onDelete={deleteEntry}
@@ -154,6 +155,7 @@ function TimeEntryWeeks({
   projects,
   activeEntryId,
   onPatched,
+  onSplitDone,
   onPlay,
   onStop,
   onDelete,
@@ -163,6 +165,7 @@ function TimeEntryWeeks({
   projects: TrackerProject[];
   activeEntryId: string | null;
   onPatched: (entry: TimeEntry) => void;
+  onSplitDone: () => void;
   onPlay: (entry: TimeEntry) => void;
   onStop: () => void;
   onDelete: (entry: TimeEntry) => void;
@@ -216,6 +219,7 @@ function TimeEntryWeeks({
                         projects={projects}
                         running={activeEntryId === entry.id}
                         onPatched={onPatched}
+                        onSplitDone={onSplitDone}
                         onPlay={onPlay}
                         onStop={onStop}
                         onDelete={onDelete}

@@ -1,27 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireSession, unauthorized } from '@/lib/auth/require-session';
 import { sendMail } from '@/lib/mail/send';
+import { parseAddressField } from '@/lib/mail/thread';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
-
-type Addr = { name?: string | null; address: string };
-
-function parseAddrs(raw: unknown): Addr[] {
-  if (typeof raw === 'string') {
-    return raw.split(/[,;]/).map(s => s.trim()).filter(Boolean).map(address => ({ address }));
-  }
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map(a => {
-      if (typeof a === 'string') return { address: a.trim() };
-      if (a && typeof a === 'object' && typeof (a as Addr).address === 'string') {
-        return { name: (a as Addr).name ?? null, address: (a as Addr).address.trim() };
-      }
-      return null;
-    })
-    .filter((a): a is Addr => Boolean(a?.address));
-}
 
 export async function POST(req: NextRequest) {
   const session = await requireSession();
@@ -43,8 +26,8 @@ export async function POST(req: NextRequest) {
     const result = await sendMail({
       mailboxId: body.mailbox_id,
       userId: session.user.id,
-      to: parseAddrs(body.to),
-      cc: parseAddrs(body.cc),
+      to: parseAddressField(body.to),
+      cc: parseAddressField(body.cc),
       subject: body.subject?.trim() || '(Kein Betreff)',
       text: body.text ?? '',
       inReplyTo: body.in_reply_to,

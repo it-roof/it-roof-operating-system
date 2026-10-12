@@ -4,6 +4,7 @@ import { requireSession, unauthorized } from '@/lib/auth/require-session';
 import { writeAudit } from '@/lib/auth/audit';
 import { db } from '@/lib/db';
 import { mailbox } from '@/lib/schema';
+import { decryptSecret } from '@/lib/crypto/secret-box';
 import { encryptSecret, getMailboxForUser, mailboxToPublic } from '@/lib/mail/mailbox';
 import { testMailboxConnection } from '@/lib/mail/imap';
 
@@ -41,7 +42,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     updatedAt: new Date(),
   };
 
-  if (body.password) {
+  const hostChanged = Boolean(
+    body.imap_host || body.smtp_host || body.imap_port != null || body.smtp_port != null
+    || body.imap_secure != null || body.smtp_secure != null || body.username,
+  );
+  if (body.password || hostChanged) {
+    const password = body.password || decryptSecret(existing.passwordEncrypted);
     try {
       await testMailboxConnection({
         imapHost: next.imapHost,
@@ -51,13 +57,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         smtpPort: next.smtpPort,
         smtpSecure: next.smtpSecure,
         username: next.username,
-        password: body.password,
+        password,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Verbindung fehlgeschlagen';
       return NextResponse.json({ error: `Konto nicht erreichbar: ${message}` }, { status: 400 });
     }
-    next.passwordEncrypted = encryptSecret(body.password);
+    if (body.password) next.passwordEncrypted = encryptSecret(body.password);
   }
 
   const [row] = await db

@@ -12,6 +12,7 @@ import { hashPassword } from '../lib/auth/password';
 const EMAILS = [
   'jason.kleuster@it-roof.com',
   'elizabeth@it-roof.com',
+  'grokbot@it-roof.com',
 ] as const;
 
 async function main() {

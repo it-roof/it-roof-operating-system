@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getAreaForPath, isLinkActive } from '@/lib/nav';
 import { logoutAction } from '@/app/actions/auth';
+import type { ShellUser } from '@/components/app-shell';
 import {
   Sidebar,
   SidebarContent,
@@ -19,9 +20,22 @@ import {
 } from '@/components/ui/sidebar';
 import { LogOutIcon, ShieldIcon } from 'lucide-react';
 
-export function AppSidebar() {
+function userInitials(user: ShellUser) {
+  const name = user.name?.trim();
+  if (name) {
+    const parts = name.split(/\s+/).filter(Boolean);
+    const a = parts[0]?.[0] ?? '';
+    const b = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
+    return `${a}${b}`.toUpperCase() || '?';
+  }
+  return (user.email?.[0] ?? '?').toUpperCase();
+}
+
+export function AppSidebar({ user }: { user: ShellUser | null }) {
   const path = usePathname();
   const area = getAreaForPath(path);
+  const label = user?.name?.trim() || user?.email || 'Benutzer';
+  const sub = user?.name?.trim() && user.email ? user.email : null;
 
   return (
     <Sidebar collapsible="icon">
@@ -66,6 +80,24 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-2">
+        {user && (
+          <div className="mb-1 flex items-center gap-2 px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+            <div
+              className="flex size-7 shrink-0 items-center justify-center rounded-md bg-sidebar-accent font-mono text-[10px] font-semibold tracking-wide text-sidebar-accent-foreground"
+              title={user.email ?? label}
+            >
+              {userInitials(user)}
+            </div>
+            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+              <p className="truncate text-[12px] font-medium leading-tight">{label}</p>
+              {sub && (
+                <p className="truncate font-mono text-[10px] tracking-wide text-muted-foreground">
+                  {sub}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton

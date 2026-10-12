@@ -60,10 +60,14 @@ export async function GET(req: NextRequest) {
 
   type Entry = {
     id: string;
+    task_id: string;
     title: string;
     started_at: string;
     stopped_at: string | null;
     duration_seconds: number;
+    projekt: string;
+    firma: string;
+    project_id: string;
   };
 
   type ProjectBucket = {
@@ -96,10 +100,14 @@ export async function GET(req: NextRequest) {
     bucket.total_seconds += secs;
     bucket.entries.push({
       id: row.id,
+      task_id: row.task_id,
       title: row.title,
       started_at: row.started_at,
       stopped_at: row.stopped_at,
       duration_seconds: secs,
+      projekt: row.projekt,
+      firma: row.firma || '',
+      project_id: row.project_id,
     });
   }
 

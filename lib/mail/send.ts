@@ -3,14 +3,85 @@ import MailComposer from 'nodemailer/lib/mail-composer';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { mailboxFolder, mailboxMessage } from '@/lib/schema';
-import { getMailboxCredentials } from '@/lib/mail/mailbox';
-import { withImap } from '@/lib/mail/imap';
-import { snippetFrom, stringifyAddressList, threadIdFromHeaders } from '@/lib/mail/thread';
+import { getMailboxCredentials, type MailboxCredentials } from '@/lib/mail/mailbox';
+import { folderRole, withImap } from '@/lib/mail/imap';
+import {
+  formatMessageId,
+  messageIdFromRaw,
+  snippetFrom,
+  stringifyAddressList,
+  threadIdFromHeaders,
+} from '@/lib/mail/thread';
 
 type Addr = { name?: string | null; address: string };
 
-function formatAddr(a: Addr) {
-  return a.name ? `"${a.name}" <${a.address}>` : a.address;
+function toComposerAddr(a: Addr) {
+  return a.name ? { name: a.name, address: a.address } : a.address;
+}
+
+async function ensureSentFolder(creds: MailboxCredentials) {
+  const rows = await db
+    .select()
+    .from(mailboxFolder)
+    .where(and(eq(mailboxFolder.mailboxId, creds.id), eq(mailboxFolder.role, 'sent')));
+  const real = rows.find(f => !f.imapPath.startsWith('__local_'));
+  if (real) return real;
+
+  try {
+    const fromImap = await withImap(creds, async client => {
+      const listed = await client.list();
+      for (const box of listed) {
+        if (box.flags.has('\\Noselect') || box.flags.has('\\NonExistent')) continue;
+        const role = folderRole(box.path, box.specialUse, box.name);
+        if (role !== 'sent') continue;
+        const existing = (await db
+          .select()
+          .from(mailboxFolder)
+          .where(and(eq(mailboxFolder.mailboxId, creds.id), eq(mailboxFolder.imapPath, box.path))))[0];
+        if (existing) {
+          if (existing.role !== 'sent') {
+            await db.update(mailboxFolder).set({ role: 'sent', name: box.name || existing.name }).where(eq(mailboxFolder.id, existing.id));
+          }
+          return { ...existing, role: 'sent' };
+        }
+        try {
+          const [created] = await db
+            .insert(mailboxFolder)
+            .values({
+              mailboxId: creds.id,
+              imapPath: box.path,
+              name: box.name || 'Gesendet',
+              role: 'sent',
+            })
+            .returning();
+          return created!;
+        } catch {
+          const [row] = await db
+            .select()
+            .from(mailboxFolder)
+            .where(and(eq(mailboxFolder.mailboxId, creds.id), eq(mailboxFolder.imapPath, box.path)))
+            .limit(1);
+          if (row) return row;
+        }
+      }
+      return null;
+    });
+    if (fromImap) return fromImap;
+  } catch {
+    // lokale Gesendet-Kopie reicht, IMAP folgt beim Sync
+  }
+
+  if (rows[0]) return rows[0];
+  const [created] = await db
+    .insert(mailboxFolder)
+    .values({
+      mailboxId: creds.id,
+      imapPath: '__local_sent__',
+      name: 'Gesendet',
+      role: 'sent',
+    })
+    .returning();
+  return created!;
 }
 
 export async function sendMail(opts: {
@@ -28,11 +99,10 @@ export async function sendMail(opts: {
   if (!creds) throw new Error('Postfach nicht gefunden');
   if (!opts.to.length) throw new Error('Empfänger fehlt');
 
-  const from = creds.displayName ? `"${creds.displayName}" <${creds.email}>` : creds.email;
   const mailOpts = {
-    from,
-    to: opts.to.map(formatAddr),
-    cc: opts.cc?.length ? opts.cc.map(formatAddr) : undefined,
+    from: creds.displayName ? { name: creds.displayName, address: creds.email } : creds.email,
+    to: opts.to.map(toComposerAddr),
+    cc: opts.cc?.length ? opts.cc.map(toComposerAddr) : undefined,
     subject: opts.subject,
     text: opts.text,
     inReplyTo: opts.inReplyTo ?? undefined,
@@ -41,6 +111,7 @@ export async function sendMail(opts: {
   };
 
   const raw: Buffer = await new MailComposer(mailOpts).compile().build();
+  const messageId = messageIdFromRaw(raw);
 
   const transporter = nodemailer.createTransport({
     host: creds.smtpHost,
@@ -59,13 +130,11 @@ export async function sendMail(opts: {
     raw,
   });
 
-  const sentFolder = (await db
-    .select()
-    .from(mailboxFolder)
-    .where(and(eq(mailboxFolder.mailboxId, creds.id), eq(mailboxFolder.role, 'sent'))))[0] ?? null;
+  const storedMessageId = messageId ?? formatMessageId(typeof info.messageId === 'string' ? info.messageId : null);
+  const sentFolder = await ensureSentFolder(creds);
 
   let uid: number | null = null;
-  if (sentFolder) {
+  if (sentFolder && !sentFolder.imapPath.startsWith('__local_')) {
     try {
       await withImap(creds, async client => {
         const appended = await client.append(sentFolder.imapPath, raw, ['\\Seen']);
@@ -76,16 +145,17 @@ export async function sendMail(opts: {
     } catch {
       // Mail ist schon raus — Gesendet-Kopie folgt beim Sync
     }
+  }
 
-    const messageId = typeof info.messageId === 'string' ? info.messageId : null;
+  if (sentFolder) {
     await db.insert(mailboxMessage).values({
       mailboxId: creds.id,
       folderId: sentFolder.id,
       uid,
-      messageIdHeader: messageId,
-      inReplyTo: opts.inReplyTo ?? null,
+      messageIdHeader: storedMessageId,
+      inReplyTo: formatMessageId(opts.inReplyTo) ?? opts.inReplyTo ?? null,
       referencesHeader: opts.references ?? null,
-      threadId: threadIdFromHeaders(messageId, opts.inReplyTo, opts.references),
+      threadId: threadIdFromHeaders(storedMessageId, opts.inReplyTo, opts.references),
       fromName: creds.displayName,
       fromAddress: creds.email,
       toAddresses: stringifyAddressList(opts.to),
@@ -111,7 +181,7 @@ export async function sendMail(opts: {
     ));
   }
 
-  return { messageId: info.messageId as string | undefined };
+  return { messageId: storedMessageId ?? (info.messageId as string | undefined) };
 }
 
 export async function saveDraft(opts: {
@@ -151,7 +221,7 @@ export async function saveDraft(opts: {
     folderId: drafts.id,
     uid: null as number | null,
     messageIdHeader: null as string | null,
-    inReplyTo: opts.inReplyTo ?? null,
+    inReplyTo: formatMessageId(opts.inReplyTo) ?? opts.inReplyTo ?? null,
     referencesHeader: opts.references ?? null,
     threadId: threadIdFromHeaders(null, opts.inReplyTo ?? null, opts.references ?? null),
     fromName: creds.displayName,

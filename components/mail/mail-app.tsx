@@ -154,7 +154,13 @@ export function MailApp() {
   }
 
   async function removeMessage(id: string) {
-    await fetch(`/api/mail/messages/${id}`, { method: 'DELETE' });
+    const r = await fetch(`/api/mail/messages/${id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      const data = await r.json().catch(() => null) as { error?: string } | null;
+      window.alert(data?.error || 'Löschen fehlgeschlagen');
+      void loadMessages();
+      return;
+    }
     setMessages(ms => ms.filter(m => m.id !== id));
     if (selectedId === id) {
       setSelectedId(null);
@@ -314,8 +320,10 @@ export function MailApp() {
                   type="button"
                   onClick={() => {
                     if (m.draft) {
-                      void fetch(`/api/mail/messages/${m.id}`).then(r => r.json()).then((d: MailMessageDetail) => {
-                        setCompose({ mode: 'draft', source: d });
+                      void fetch(`/api/mail/messages/${m.id}`).then(async r => {
+                        if (!r.ok) return;
+                        const d = await r.json() as MailMessageDetail;
+                        if (d?.id) setCompose({ mode: 'draft', source: d });
                       });
                       return;
                     }
@@ -425,7 +433,7 @@ export function MailApp() {
       <MailAccountDialog
         open={accountOpen}
         onClose={() => setAccountOpen(false)}
-        onSaved={() => { void loadBoxes(); void loadFolders(); }}
+        onSaved={() => { void loadBoxes(); void loadFolders(); void syncNow(); }}
       />
       {compose && (
         <MailCompose

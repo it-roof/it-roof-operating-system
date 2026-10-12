@@ -68,7 +68,11 @@ export function folderRole(path: string, specialUse?: string | string[] | null, 
   const last = hay.split(/[./]/).pop() ?? hay;
   if (/(^|[./\s])(sent|gesendet|sent items|gesendete objekte)(\b|$)/i.test(hay) || last === 'sent' || last === 'gesendet') return 'sent';
   if (/(^|[./\s])(drafts|entw[uü]rfe)(\b|$)/i.test(hay) || last === 'drafts') return 'drafts';
-  if (/(^|[./\s])(trash|deleted|papierkorb|deleted items|papierkorb)(\b|$)/i.test(hay) || last === 'trash' || last === 'papierkorb') return 'trash';
+  if (
+    /(^|[./\s])(trash|deleted|papierkorb|deleted items|gelöschte|gelöschte elemente|gelöscht)(\b|$)/i.test(hay)
+    || last === 'trash'
+    || last === 'papierkorb'
+  ) return 'trash';
   if (/(^|[./\s])(junk|spam)(\b|$)/i.test(hay) || last === 'junk' || last === 'spam') return 'junk';
   if (/(^|[./\s])(archive|archiv)(\b|$)/i.test(hay) || last === 'archive' || last === 'archiv') return 'archive';
   return 'other';

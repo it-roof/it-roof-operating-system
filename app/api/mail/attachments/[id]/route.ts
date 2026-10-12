@@ -10,10 +10,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (!att?.contentBase64) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
   const buf = Buffer.from(att.contentBase64, 'base64');
   const filename = att.filename || 'anhang';
+  const ascii = filename.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '');
+  const encoded = encodeURIComponent(filename);
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': att.contentType || 'application/octet-stream',
-      'Content-Disposition': `attachment; filename="${filename.replace(/"/g, '')}"`,
+      'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`,
       'Content-Length': String(buf.length),
     },
   });

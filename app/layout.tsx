@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { auth } from "@/auth";
 import { TimerProvider } from "@/lib/timer-context";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AppShell } from "@/components/app-shell";
@@ -38,17 +39,22 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+  const user = session?.user
+    ? { name: session.user.name ?? null, email: session.user.email ?? null }
+    : null;
+
   return (
     <html lang="de" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
       <body className={`${geistSans.className} min-h-full flex flex-col bg-background`}>
         <ThemeProvider>
           <TimerProvider>
-            <AppShell>
+            <AppShell user={user}>
               {children}
             </AppShell>
           </TimerProvider>

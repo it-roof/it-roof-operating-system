@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -27,10 +28,11 @@ export function MailAccountDialog({ open, initial, onClose, onSaved }: Props) {
   const [password, setPassword] = useState('');
   const [imapHost, setImapHost] = useState('');
   const [imapPort, setImapPort] = useState('993');
+  const [imapSecure, setImapSecure] = useState(true);
   const [smtpHost, setSmtpHost] = useState('');
   const [smtpPort, setSmtpPort] = useState('587');
+  const [smtpSecure, setSmtpSecure] = useState(false);
   const [username, setUsername] = useState('');
-  const [advanced, setAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,47 +45,63 @@ export function MailAccountDialog({ open, initial, onClose, onSaved }: Props) {
       setDisplayName(initial.display_name ?? '');
       setImapHost(initial.imap_host);
       setImapPort(String(initial.imap_port));
+      setImapSecure(initial.imap_secure);
       setSmtpHost(initial.smtp_host);
       setSmtpPort(String(initial.smtp_port));
+      setSmtpSecure(initial.smtp_secure);
       setUsername(initial.username);
-      setAdvanced(true);
       return;
     }
     setEmail('');
     setDisplayName('');
     setImapHost('');
     setImapPort('993');
+    setImapSecure(true);
     setSmtpHost('');
     setSmtpPort('587');
+    setSmtpSecure(false);
     setUsername('');
-    setAdvanced(false);
   }, [open, initial]);
 
   async function guess(nextEmail: string) {
     if (!nextEmail.includes('@') || initial) return;
     const r = await fetch(`/api/mail/guess?email=${encodeURIComponent(nextEmail)}`);
-    const data = await r.json() as { imapHost?: string; smtpHost?: string; imapPort?: number; smtpPort?: number };
+    const data = await r.json() as {
+      imapHost?: string;
+      smtpHost?: string;
+      imapPort?: number;
+      smtpPort?: number;
+      imapSecure?: boolean;
+      smtpSecure?: boolean;
+    };
     if (data.imapHost) setImapHost(data.imapHost);
     if (data.smtpHost) setSmtpHost(data.smtpHost);
     if (data.imapPort) setImapPort(String(data.imapPort));
     if (data.smtpPort) setSmtpPort(String(data.smtpPort));
-    if (!username) setUsername(nextEmail);
+    if (typeof data.imapSecure === 'boolean') setImapSecure(data.imapSecure);
+    if (typeof data.smtpSecure === 'boolean') setSmtpSecure(data.smtpSecure);
+    setUsername(prev => prev || nextEmail);
   }
 
   async function submit() {
     if (!email.trim()) return;
+    if (!imapHost.trim() || !smtpHost.trim()) {
+      setError('IMAP- und SMTP-Host sind nötig');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
+      const portSmtp = Number(smtpPort) || 587;
       const payload = {
         email: email.trim(),
         display_name: displayName.trim() || null,
         imap_host: imapHost.trim(),
         imap_port: Number(imapPort) || 993,
-        imap_secure: true,
+        imap_secure: imapSecure,
         smtp_host: smtpHost.trim(),
-        smtp_port: Number(smtpPort) || 587,
-        smtp_secure: Number(smtpPort) === 465,
+        smtp_port: portSmtp,
+        smtp_secure: smtpSecure || portSmtp === 465,
         username: username.trim() || email.trim(),
         password: password || undefined,
       };
@@ -106,7 +124,7 @@ export function MailAccountDialog({ open, initial, onClose, onSaved }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{initial ? 'Konto bearbeiten' : 'Konto hinzufügen'}</DialogTitle>
         </DialogHeader>
@@ -128,44 +146,67 @@ export function MailAccountDialog({ open, initial, onClose, onSaved }: Props) {
             <Input id="mail-name" value={displayName} onChange={e => setDisplayName(e.target.value)} />
           </div>
           <div className="flex flex-col gap-1.5">
+            <Label htmlFor="mail-user">Benutzername</Label>
+            <Input
+              id="mail-user"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder="meist = E-Mail"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
             <Label htmlFor="mail-pass">Passwort{initial ? ' (leer = unverändert)' : ''}</Label>
             <Input id="mail-pass" type="password" value={password} onChange={e => setPassword(e.target.value)} />
           </div>
-          <button
-            type="button"
-            className="text-left text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => setAdvanced(a => !a)}
-          >
-            {advanced ? 'Server ausblenden' : 'Server & Ports'}
-          </button>
-          {advanced && (
-            <>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2 flex flex-col gap-1.5">
-                  <Label>IMAP-Host</Label>
-                  <Input value={imapHost} onChange={e => setImapHost(e.target.value)} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label>Port</Label>
-                  <Input value={imapPort} onChange={e => setImapPort(e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2 flex flex-col gap-1.5">
-                  <Label>SMTP-Host</Label>
-                  <Input value={smtpHost} onChange={e => setSmtpHost(e.target.value)} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label>Port</Label>
-                  <Input value={smtpPort} onChange={e => setSmtpPort(e.target.value)} />
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>Benutzername</Label>
-                <Input value={username} onChange={e => setUsername(e.target.value)} />
-              </div>
-            </>
-          )}
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2 flex flex-col gap-1.5">
+              <Label htmlFor="mail-imap-host">IMAP-Server</Label>
+              <Input
+                id="mail-imap-host"
+                value={imapHost}
+                onChange={e => setImapHost(e.target.value)}
+                placeholder="imap.beispiel.de"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="mail-imap-port">Port</Label>
+              <Input id="mail-imap-port" value={imapPort} onChange={e => setImapPort(e.target.value)} />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox checked={imapSecure} onCheckedChange={v => setImapSecure(v === true)} />
+            IMAP SSL/TLS
+          </label>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2 flex flex-col gap-1.5">
+              <Label htmlFor="mail-smtp-host">SMTP-Server</Label>
+              <Input
+                id="mail-smtp-host"
+                value={smtpHost}
+                onChange={e => setSmtpHost(e.target.value)}
+                placeholder="smtp.beispiel.de"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="mail-smtp-port">Port</Label>
+              <Input
+                id="mail-smtp-port"
+                value={smtpPort}
+                onChange={e => {
+                  setSmtpPort(e.target.value);
+                  if (e.target.value === '465') setSmtpSecure(true);
+                  if (e.target.value === '587') setSmtpSecure(false);
+                }}
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox checked={smtpSecure} onCheckedChange={v => setSmtpSecure(v === true)} />
+            SMTP SSL (Port 465) · bei 587 meist STARTTLS ohne Haken
+          </label>
+
           {error && <p className="text-sm text-danger">{error}</p>}
           <DialogFooter className="px-0">
             <Button type="button" variant="outline" onClick={onClose}>Abbrechen</Button>

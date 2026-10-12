@@ -8,7 +8,18 @@ import { AppSidebar } from '@/components/app-sidebar';
 import { AppNavbar } from '@/components/app-navbar';
 import Navbar from '@/components/navbar';
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export type ShellUser = {
+  name: string | null;
+  email: string | null;
+};
+
+export function AppShell({
+  children,
+  user,
+}: {
+  children: React.ReactNode;
+  user?: ShellUser | null;
+}) {
   const path = usePathname();
   if (path === '/login' || path.startsWith('/login/')) {
     return <>{children}</>;
@@ -17,7 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <TooltipProvider>
       <SidebarProvider className="h-svh min-h-svh overflow-hidden bg-background">
-        <AppSidebar />
+        <AppSidebar user={user ?? null} />
         <SidebarInset className="min-h-0 overflow-hidden bg-background">
           <AppNavbar />
           <TimerBanner />

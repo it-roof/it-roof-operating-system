@@ -1,27 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageContainer } from '@/components/page-container';
 import { PageHeader } from '@/components/page-header';
-import { fmtHms } from '@/lib/time-entry-utils';
-
-type ReportEntry = {
-  id: string;
-  title: string;
-  started_at: string;
-  stopped_at: string | null;
-  duration_seconds: number;
-};
+import { TimeEntryRow } from '@/components/time-entry-row';
+import { useTimer } from '@/lib/timer-context';
+import { type TimeEntry, fmtHms } from '@/lib/time-entry-utils';
+import { type TrackerProject } from '@/lib/types';
 
 type ReportProject = {
   project_id: string;
   name: string;
   firma: string;
   total_seconds: number;
-  entries: ReportEntry[];
+  entries: TimeEntry[];
 };
 
 type Report = {
@@ -55,37 +50,78 @@ function monthLabel(key: string) {
   return `${MONTHS_DE[(m ?? 1) - 1] ?? key} ${y}`;
 }
 
-function entryDateLabel(iso: string) {
-  return new Date(iso).toLocaleDateString('de-DE', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  });
-}
-
 export default function MonatsberichtePage() {
+  const { activeEntryId, pending, startTask, stopTask } = useTimer();
   const [month, setMonth] = useState(currentMonthKey);
   const [data, setData] = useState<Report | null>(null);
+  const [projects, setProjects] = useState<TrackerProject[]>([]);
   const [loading, setLoading] = useState(true);
+  const opLock = useRef(false);
 
-  const load = useCallback(async (m: string) => {
-    setLoading(true);
+  const load = useCallback(async (m: string, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const r = await fetch(`/api/monatsberichte?month=${encodeURIComponent(m)}`);
       if (!r.ok) {
-        setData(null);
+        if (!opts?.silent) setData(null);
         return;
       }
       const json = (await r.json()) as Report;
       setData(json);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load(month);
   }, [month, load]);
+
+  useEffect(() => {
+    fetch('/api/projects')
+      .then((r) => r.json())
+      .then((list: TrackerProject[]) => setProjects(Array.isArray(list) ? list : []));
+  }, []);
+
+  async function playEntry(entry: TimeEntry) {
+    if (pending || opLock.current) return;
+    opLock.current = true;
+    try {
+      await startTask(entry.task_id, entry.title, true);
+      await load(month, { silent: true });
+    } finally {
+      opLock.current = false;
+    }
+  }
+
+  async function stopRunning() {
+    if (pending || opLock.current) return;
+    opLock.current = true;
+    try {
+      await stopTask();
+      await load(month, { silent: true });
+    } finally {
+      opLock.current = false;
+    }
+  }
+
+  async function deleteEntry(entry: TimeEntry) {
+    if (entry.legacy || pending || opLock.current) return;
+    opLock.current = true;
+    try {
+      const wasRunning = entry.id === activeEntryId;
+      const r = await fetch(`/api/time-entries/${entry.id}`, { method: 'DELETE' });
+      if (!r.ok) return;
+      if (wasRunning) await stopTask({ localOnly: true });
+      await load(month, { silent: true });
+    } finally {
+      opLock.current = false;
+    }
+  }
+
+  function onPatched() {
+    void load(month, { silent: true });
+  }
 
   const summary = data?.summary;
 
@@ -170,25 +206,24 @@ export default function MonatsberichtePage() {
                       {fmtHms(p.total_seconds)}
                     </span>
                   </div>
-                  <ul className="divide-y divide-border/60 border-y border-border/60">
-                    {p.entries.map((e) => (
-                      <li
-                        key={e.id}
-                        className="flex items-start justify-between gap-3 py-2.5"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm">{e.title}</p>
-                          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-                            {entryDateLabel(e.started_at)}
-                            {!e.stopped_at ? ' · läuft' : ''}
-                          </p>
-                        </div>
-                        <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">
-                          {fmtHms(e.duration_seconds)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+                    <div className="divide-y divide-border/60 bg-card">
+                      {p.entries.map((entry) => (
+                        <TimeEntryRow
+                          key={entry.id}
+                          entry={entry}
+                          projects={projects}
+                          running={activeEntryId === entry.id}
+                          showDate
+                          onPatched={onPatched}
+                          onSplitDone={onPatched}
+                          onPlay={playEntry}
+                          onStop={stopRunning}
+                          onDelete={deleteEntry}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </section>
               ))}
             </div>

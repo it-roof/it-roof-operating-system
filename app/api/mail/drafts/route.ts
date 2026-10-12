@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireSession, unauthorized } from '@/lib/auth/require-session';
 import { saveDraft } from '@/lib/mail/send';
+import { parseAddressField } from '@/lib/mail/thread';
 
 export async function POST(req: NextRequest) {
   const session = await requireSession();
@@ -8,8 +9,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json() as {
     mailbox_id?: string;
     draft_id?: string | null;
-    to?: string;
-    cc?: string;
+    to?: unknown;
+    cc?: unknown;
     subject?: string;
     text?: string;
     in_reply_to?: string | null;
@@ -18,8 +19,8 @@ export async function POST(req: NextRequest) {
   if (!body.mailbox_id) {
     return NextResponse.json({ error: 'Postfach fehlt' }, { status: 400 });
   }
-  const to = (body.to ?? '').split(/[,;]/).map(s => s.trim()).filter(Boolean).map(address => ({ address }));
-  const cc = (body.cc ?? '').split(/[,;]/).map(s => s.trim()).filter(Boolean).map(address => ({ address }));
+  const to = parseAddressField(body.to);
+  const cc = parseAddressField(body.cc);
   try {
     const row = await saveDraft({
       mailboxId: body.mailbox_id,

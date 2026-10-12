@@ -29,7 +29,8 @@ type Props = {
 
 function quote(source: MailMessageDetail) {
   const who = source.from_name || source.from_address || '';
-  const body = source.text_body || '';
+  const body = source.text_body
+    || (source.html_body ? source.html_body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '');
   return `\n\nAm ${source.date ? new Date(source.date).toLocaleString('de-DE') : ''} schrieb ${who}:\n${body.split('\n').map(l => `> ${l}`).join('\n')}`;
 }
 
@@ -63,9 +64,13 @@ export function MailCompose({ open, mode, mailboxes, mailboxId, source, onClose,
       return;
     }
     const from = source.from_address ?? '';
+    const me = (mailboxes.find(b => b.id === (mailboxId || mailboxes[0]?.id))?.email ?? '').toLowerCase();
     const others = [...source.to_addresses, ...source.cc_addresses]
       .map(a => a.address)
-      .filter(a => a && a !== from);
+      .filter(a => {
+        const addr = a.toLowerCase();
+        return addr && addr !== from.toLowerCase() && addr !== me;
+      });
     if (mode === 'reply') {
       setTo(from);
       setCc('');
@@ -97,8 +102,10 @@ export function MailCompose({ open, mode, mailboxes, mailboxId, source, onClose,
           cc,
           subject,
           text,
-          in_reply_to: source?.message_id_header ?? null,
-          references: source ? [source.message_id_header, source.in_reply_to].filter(Boolean).join(' ') : null,
+          in_reply_to: mode === 'reply' || mode === 'replyAll' || mode === 'draft' ? source?.message_id_header ?? null : null,
+          references: mode === 'forward' || mode === 'new' || !source
+            ? null
+            : [source.message_id_header, source.in_reply_to].filter(Boolean).join(' '),
           draft_id: draftId,
         }),
       });

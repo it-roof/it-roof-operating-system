@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import { mailbox, mailboxAttachment, mailboxFolder, mailboxMessage } from '@/lib/schema';
 import { getMailboxCredentials, type MailboxCredentials } from '@/lib/mail/mailbox';
 import { folderRole, withImap } from '@/lib/mail/imap';
-import { snippetFrom, stringifyAddressList, threadIdFromHeaders } from '@/lib/mail/thread';
+import { formatMessageId, messageIdVariants, snippetFrom, stringifyAddressList, threadIdFromHeaders } from '@/lib/mail/thread';
 
 const SYNC_DAYS = 90;
 const MAX_FETCH = 400;
@@ -136,120 +136,145 @@ async function runSync(creds: MailboxCredentials, client: Awaited<ReturnType<typ
       }
 
       const searched = await client.search({ since }, { uid: true });
-      const uids = (Array.isArray(searched) ? searched : [])
+      const allUids = (Array.isArray(searched) ? searched : [])
         .map(u => Number(u))
-        .filter(n => Number.isFinite(n))
-        .sort((a, b) => b - a)
-        .slice(0, MAX_FETCH);
-
-      if (uids.length === 0) continue;
+        .filter(n => Number.isFinite(n));
+      const searchedSet = new Set(allUids);
+      const uids = [...allUids].sort((a, b) => b - a).slice(0, MAX_FETCH);
 
       const known = await db
-        .select({ id: mailboxMessage.id, uid: mailboxMessage.uid })
+        .select({ id: mailboxMessage.id, uid: mailboxMessage.uid, date: mailboxMessage.date })
         .from(mailboxMessage)
         .where(and(eq(mailboxMessage.folderId, folder.id), isNotNull(mailboxMessage.uid)));
       const knownByUid = new Map(known.filter(k => k.uid != null).map(k => [k.uid!, k.id]));
-      const seenUids = new Set<number>();
 
-      for await (const msg of client.fetch(uids, {
-        uid: true,
-        flags: true,
-        envelope: true,
-        source: true,
-      }, { uid: true })) {
-        const uid = Number(msg.uid);
-        if (!Number.isFinite(uid)) continue;
-        seenUids.add(uid);
-        const existingId = knownByUid.get(uid);
-        const fl = flagsOf(msg.flags);
+      if (uids.length > 0) {
+        for await (const msg of client.fetch(uids, {
+          uid: true,
+          flags: true,
+          envelope: true,
+          source: true,
+        }, { uid: true })) {
+          const uid = Number(msg.uid);
+          if (!Number.isFinite(uid)) continue;
+          const existingId = knownByUid.get(uid);
+          const fl = flagsOf(msg.flags);
 
-        if (existingId) {
-          await db
-            .update(mailboxMessage)
-            .set({
-              seen: fl.seen,
-              flagged: fl.flagged,
-              draft: fl.draft,
-              answered: fl.answered,
-              updatedAt: new Date(),
-            })
-            .where(eq(mailboxMessage.id, existingId));
-          continue;
-        }
-
-        if (!msg.source) continue;
-        const parsed = await simpleParser(msg.source);
-        const from = addrs(parsed.from)[0];
-        const to = addrs(parsed.to);
-        const cc = addrs(parsed.cc);
-        const messageId = parsed.messageId ?? msg.envelope?.messageId ?? null;
-        const inReplyTo = parsed.inReplyTo ?? null;
-        const references = Array.isArray(parsed.references)
-          ? parsed.references.join(' ')
-          : (parsed.references ?? null);
-
-        if (messageId) {
-          const [dup] = await db
-            .select({ id: mailboxMessage.id })
-            .from(mailboxMessage)
-            .where(and(eq(mailboxMessage.folderId, folder.id), eq(mailboxMessage.messageIdHeader, messageId)))
-            .limit(1);
-          if (dup) {
+          if (existingId) {
             await db
               .update(mailboxMessage)
               .set({
-                uid,
                 seen: fl.seen,
                 flagged: fl.flagged,
                 draft: fl.draft,
                 answered: fl.answered,
                 updatedAt: new Date(),
               })
-              .where(eq(mailboxMessage.id, dup.id));
-            knownByUid.set(uid, dup.id);
+              .where(eq(mailboxMessage.id, existingId));
             continue;
           }
-        }
-        const html = clip(typeof parsed.html === 'string' ? parsed.html : null, MAX_HTML);
-        const text = clip(parsed.text ?? null, MAX_TEXT);
-        const attachments = (parsed.attachments ?? []).filter(a => !a.related);
-        const kept = attachments.filter(a => (a.size ?? a.content?.length ?? 0) <= MAX_ATTACH).slice(0, MAX_ATTACH_COUNT);
 
-        const [row] = await db
-          .insert(mailboxMessage)
-          .values({
-            mailboxId: creds.id,
-            folderId: folder.id,
-            uid,
-            messageIdHeader: messageId,
-            inReplyTo,
-            referencesHeader: references,
-            threadId: threadIdFromHeaders(messageId, inReplyTo, references),
-            fromName: from?.name ?? null,
-            fromAddress: from?.address ?? null,
-            toAddresses: stringifyAddressList(to),
-            ccAddresses: stringifyAddressList(cc),
-            subject: parsed.subject ?? msg.envelope?.subject ?? null,
-            date: toDate(parsed.date ?? msg.envelope?.date),
-            seen: fl.seen,
-            flagged: fl.flagged,
-            draft: fl.draft,
-            answered: fl.answered,
-            snippet: snippetFrom(text, html),
-            textBody: text,
-            htmlBody: html,
-            hasAttachments: kept.length > 0,
-            size: msg.source.length,
-          })
-          .returning({ id: mailboxMessage.id });
+          if (!msg.source) continue;
+          try {
+            const parsed = await simpleParser(msg.source);
+            const from = addrs(parsed.from)[0];
+            const to = addrs(parsed.to);
+            const cc = addrs(parsed.cc);
+            const messageId = formatMessageId(parsed.messageId ?? msg.envelope?.messageId ?? null);
+            const inReplyTo = formatMessageId(parsed.inReplyTo) ?? parsed.inReplyTo ?? null;
+            const references = Array.isArray(parsed.references)
+              ? parsed.references.join(' ')
+              : (parsed.references ?? null);
 
-        if (row && kept.length) {
-          await insertAttachments(row.id, kept);
+            const variants = messageIdVariants(messageId);
+            if (variants.length) {
+              const [dup] = await db
+                .select({ id: mailboxMessage.id })
+                .from(mailboxMessage)
+                .where(and(
+                  eq(mailboxMessage.folderId, folder.id),
+                  inArray(mailboxMessage.messageIdHeader, variants),
+                ))
+                .limit(1);
+              if (dup) {
+                try {
+                  await db
+                    .update(mailboxMessage)
+                    .set({
+                      uid,
+                      messageIdHeader: messageId,
+                      seen: fl.seen,
+                      flagged: fl.flagged,
+                      draft: fl.draft,
+                      answered: fl.answered,
+                      updatedAt: new Date(),
+                    })
+                    .where(eq(mailboxMessage.id, dup.id));
+                  knownByUid.set(uid, dup.id);
+                } catch {
+                  // UID schon vergeben
+                }
+                continue;
+              }
+            }
+            const html = clip(typeof parsed.html === 'string' ? parsed.html : null, MAX_HTML);
+            const text = clip(parsed.text ?? null, MAX_TEXT);
+            const attachments = (parsed.attachments ?? []).filter(a => !a.related);
+            const kept = attachments.filter(a => (a.size ?? a.content?.length ?? 0) <= MAX_ATTACH).slice(0, MAX_ATTACH_COUNT);
+
+            try {
+              const [row] = await db
+                .insert(mailboxMessage)
+                .values({
+                  mailboxId: creds.id,
+                  folderId: folder.id,
+                  uid,
+                  messageIdHeader: messageId,
+                  inReplyTo,
+                  referencesHeader: references,
+                  threadId: threadIdFromHeaders(messageId, inReplyTo, references),
+                  fromName: from?.name ?? null,
+                  fromAddress: from?.address ?? null,
+                  toAddresses: stringifyAddressList(to),
+                  ccAddresses: stringifyAddressList(cc),
+                  subject: parsed.subject ?? msg.envelope?.subject ?? null,
+                  date: toDate(parsed.date ?? msg.envelope?.date),
+                  seen: fl.seen,
+                  flagged: fl.flagged,
+                  draft: fl.draft,
+                  answered: fl.answered,
+                  snippet: snippetFrom(text, html),
+                  textBody: text,
+                  htmlBody: html,
+                  hasAttachments: kept.length > 0,
+                  size: msg.source.length,
+                })
+                .returning({ id: mailboxMessage.id });
+
+              if (row && kept.length) {
+                await insertAttachments(row.id, kept);
+              }
+              if (row) {
+                knownByUid.set(uid, row.id);
+                stored += 1;
+              }
+            } catch {
+              // UID-Kollision bei parallelem Sync
+            }
+          } catch {
+            // einzelne kaputte MIME-Nachricht darf den Sync nicht abbrechen
+          }
         }
-        stored += 1;
       }
 
-      const stale = known.filter(k => k.uid != null && !seenUids.has(k.uid) && uids.includes(k.uid));
+      const stale = known.filter(k => {
+        if (k.uid == null) return false;
+        if (searchedSet.has(k.uid)) return false;
+        if (k.date && k.date < since) return false;
+        // Gerade angehängte Gesendet-Mails sind oft noch nicht im SEARCH
+        if (k.date && Date.now() - k.date.getTime() < 5 * 60 * 1000) return false;
+        return true;
+      });
       if (stale.length) {
         await db.delete(mailboxMessage).where(inArray(mailboxMessage.id, stale.map(s => s.id)));
       }

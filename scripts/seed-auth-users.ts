@@ -12,6 +12,7 @@ import { users } from '../lib/schema';
 const SEED_USERS = [
   { name: 'Jason Kleuster', email: 'jason.kleuster@it-roof.com' },
   { name: 'Elizabeth Onyshko', email: 'elizabeth@it-roof.com' },
+  { name: 'Grok Bot', email: 'grokbot@it-roof.com' },
 ] as const;
 
 function tempPassword() {

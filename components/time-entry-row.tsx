@@ -16,6 +16,7 @@ import { de } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useTimer, useTimerTick } from '@/lib/timer-context';
 import { ProjectPicker } from '@/components/project-picker';
+import { TimeEntrySplitDialog } from '@/components/time-entry-split-dialog';
 import {
   type TimeEntry,
   dayKey,
@@ -37,10 +38,14 @@ type Props = {
   onStop: () => void;
   onDelete: (entry: TimeEntry) => void;
   onPatched: (entry: TimeEntry) => void;
+  /** Nach Split neu laden (neuer Eintrag) */
+  onSplitDone?: () => void;
+  /** Datum neben dem Kalender zeigen (z. B. Monatsübersicht ohne Tagesheader) */
+  showDate?: boolean;
 };
 
 export const TimeEntryRow = memo(function TimeEntryRow({
-  entry, running, projects, onPlay, onStop, onDelete, onPatched,
+  entry, running, projects, onPlay, onStop, onDelete, onPatched, onSplitDone, showDate,
 }: Props) {
   const { pending, updateActiveTitle, syncRunningStartedAt, beginTimerEdit, endTimerEdit } = useTimer();
   const [title, setTitle] = useState(entry.title);
@@ -48,6 +53,7 @@ export const TimeEntryRow = memo(function TimeEntryRow({
   const [endClock, setEndClock] = useState(entry.stopped_at ? fmtClock(entry.stopped_at) : '');
   const [duration, setDuration] = useState(fmtHms(entry.duration_seconds));
   const [calOpen, setCalOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
   const editing = useRef(false);
   const fieldEdits = useRef(0);
   const patchChain = useRef(Promise.resolve());
@@ -226,15 +232,30 @@ export const TimeEntryRow = memo(function TimeEntryRow({
 
       <Popover open={calOpen} onOpenChange={setCalOpen}>
         <PopoverTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-            title="Datum ändern"
-          >
-            <CalendarIcon className="size-3.5" />
-          </Button>
+          {showDate ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 shrink-0 gap-1.5 px-2 font-mono text-[11px] tabular-nums text-muted-foreground hover:text-foreground"
+              title="Datum ändern"
+            >
+              <CalendarIcon className="size-3.5" />
+              {new Date(entry.started_at).toLocaleDateString('de-DE', {
+                day: '2-digit',
+                month: '2-digit',
+              })}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+              title="Datum ändern"
+            >
+              <CalendarIcon className="size-3.5" />
+            </Button>
+          )}
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="end">
           <Calendar
@@ -317,6 +338,12 @@ export const TimeEntryRow = memo(function TimeEntryRow({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem
+            disabled={entry.legacy || pending || running || !entry.stopped_at || entry.duration_seconds < 120}
+            onClick={() => setSplitOpen(true)}
+          >
+            Splitten
+          </DropdownMenuItem>
+          <DropdownMenuItem
             variant="destructive"
             disabled={entry.legacy || pending}
             onClick={() => onDelete(entry)}
@@ -325,6 +352,16 @@ export const TimeEntryRow = memo(function TimeEntryRow({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <TimeEntrySplitDialog
+        open={splitOpen}
+        entry={entry}
+        onClose={() => setSplitOpen(false)}
+        onDone={() => {
+          if (onSplitDone) onSplitDone();
+          else onPatched(entry);
+        }}
+      />
     </div>
   );
 });

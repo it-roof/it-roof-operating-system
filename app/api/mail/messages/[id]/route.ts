@@ -40,7 +40,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const session = await requireSession();
   if (!session) return unauthorized();
   const { id } = await params;
-  const ok = await deleteMessage({ messageId: id, userId: session.user.id });
-  if (!ok) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
-  return NextResponse.json({ ok: true });
+  try {
+    const result = await deleteMessage({ messageId: id, userId: session.user.id });
+    if (!result) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Löschen fehlgeschlagen';
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 }
