@@ -9,6 +9,7 @@ export type MailboxPublic = {
   smtp_port: number;
   smtp_secure: boolean;
   username: string;
+  signature_html: string | null;
   last_sync_at: string | null;
   last_sync_error: string | null;
 };

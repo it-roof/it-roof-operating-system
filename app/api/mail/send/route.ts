@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
     cc?: unknown;
     subject?: string;
     text?: string;
+    is_html?: boolean;
     in_reply_to?: string | null;
     references?: string | null;
     draft_id?: string | null;
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
       cc: parseAddressField(body.cc),
       subject: body.subject?.trim() || '(Kein Betreff)',
       text: body.text ?? '',
+      isHtml: body.is_html ?? false,
       inReplyTo: body.in_reply_to,
       references: body.references,
       draftId: body.draft_id,

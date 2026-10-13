@@ -399,6 +399,7 @@ export const mailbox = pgTable('mailbox', {
   smtpSecure: boolean('smtp_secure').notNull().default(false),
   username: text('username').notNull(),
   passwordEncrypted: text('password_encrypted').notNull(),
+  signatureHtml: text('signature_html'),
   lastSyncAt: timestamp('last_sync_at', { withTimezone: true, mode: 'date' }),
   lastSyncError: text('last_sync_error'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),

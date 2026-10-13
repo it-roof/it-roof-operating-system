@@ -27,6 +27,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     smtp_secure?: boolean;
     username?: string;
     password?: string;
+    signature_html?: string | null;
   };
 
   const next = {
@@ -39,6 +40,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     smtpSecure: body.smtp_secure ?? existing.smtpSecure,
     username: body.username?.trim() || existing.username,
     passwordEncrypted: existing.passwordEncrypted,
+    signatureHtml: body.signature_html === undefined ? existing.signatureHtml : (body.signature_html?.trim() || null),
     updatedAt: new Date(),
   };
 

@@ -20,6 +20,7 @@ function toPublic(row: MailboxRow): MailboxPublic {
     smtp_port: row.smtpPort,
     smtp_secure: row.smtpSecure,
     username: row.username,
+    signature_html: row.signatureHtml,
     last_sync_at: row.lastSyncAt ? row.lastSyncAt.toISOString() : null,
     last_sync_error: row.lastSyncError,
   };
