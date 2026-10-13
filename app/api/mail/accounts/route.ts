@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
     smtp_secure?: boolean;
     username?: string;
     password?: string;
+    signature_html?: string | null;
   };
   const email = body.email?.trim().toLowerCase() ?? '';
   if (!email || !email.includes('@')) {
@@ -98,6 +99,7 @@ export async function POST(req: NextRequest) {
         smtpSecure,
         username,
         passwordEncrypted: encryptSecret(password),
+        signatureHtml: body.signature_html?.trim() || null,
       })
       .returning();
     await writeAudit({ action: 'mailbox.create', resource: 'mailbox', resourceId: row!.id });

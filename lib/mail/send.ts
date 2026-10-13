@@ -19,6 +19,24 @@ function toComposerAddr(a: Addr) {
   return a.name ? { name: a.name, address: a.address } : a.address;
 }
 
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<img[^>]+alt=["']([^"']*)["'][^>]*>/gi, '[$1]')
+    .replace(/<img[^>]*>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function ensureSentFolder(creds: MailboxCredentials) {
   const rows = await db
     .select()
@@ -91,6 +109,7 @@ export async function sendMail(opts: {
   cc?: Addr[];
   subject: string;
   text: string;
+  isHtml?: boolean;
   inReplyTo?: string | null;
   references?: string | null;
   draftId?: string | null;
@@ -99,12 +118,25 @@ export async function sendMail(opts: {
   if (!creds) throw new Error('Postfach nicht gefunden');
   if (!opts.to.length) throw new Error('Empfänger fehlt');
 
+  let htmlBody: string | undefined;
+  let textBody: string;
+
+  if (opts.isHtml) {
+    const signature = creds.signatureHtml ? `<div style="margin-top: 1em;">${creds.signatureHtml}</div>` : '';
+    htmlBody = opts.text + signature;
+    textBody = htmlToPlainText(htmlBody);
+  } else {
+    const signature = creds.signatureHtml ? '\n\n' + htmlToPlainText(creds.signatureHtml) : '';
+    textBody = opts.text + signature;
+  }
+
   const mailOpts = {
     from: creds.displayName ? { name: creds.displayName, address: creds.email } : creds.email,
     to: opts.to.map(toComposerAddr),
     cc: opts.cc?.length ? opts.cc.map(toComposerAddr) : undefined,
     subject: opts.subject,
-    text: opts.text,
+    text: textBody,
+    html: htmlBody,
     inReplyTo: opts.inReplyTo ?? undefined,
     references: opts.references ?? undefined,
     date: new Date(),
@@ -166,9 +198,9 @@ export async function sendMail(opts: {
       flagged: false,
       draft: false,
       answered: false,
-      snippet: snippetFrom(opts.text, null),
-      textBody: opts.text,
-      htmlBody: null,
+      snippet: snippetFrom(textBody, htmlBody ?? null),
+      textBody,
+      htmlBody: htmlBody ?? null,
       hasAttachments: false,
       size: raw.length,
     });

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ export function MailAccountDialog({ open, initial, onClose, onSaved }: Props) {
   const [smtpPort, setSmtpPort] = useState('587');
   const [smtpSecure, setSmtpSecure] = useState(false);
   const [username, setUsername] = useState('');
+  const [signatureHtml, setSignatureHtml] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +52,7 @@ export function MailAccountDialog({ open, initial, onClose, onSaved }: Props) {
       setSmtpPort(String(initial.smtp_port));
       setSmtpSecure(initial.smtp_secure);
       setUsername(initial.username);
+      setSignatureHtml(initial.signature_html ?? '');
       return;
     }
     setEmail('');
@@ -61,6 +64,7 @@ export function MailAccountDialog({ open, initial, onClose, onSaved }: Props) {
     setSmtpPort('587');
     setSmtpSecure(false);
     setUsername('');
+    setSignatureHtml('');
   }, [open, initial]);
 
   async function guess(nextEmail: string) {
@@ -104,6 +108,7 @@ export function MailAccountDialog({ open, initial, onClose, onSaved }: Props) {
         smtp_secure: smtpSecure || portSmtp === 465,
         username: username.trim() || email.trim(),
         password: password || undefined,
+        signature_html: signatureHtml.trim() || null,
       };
       const r = await fetch(initial ? `/api/mail/accounts/${initial.id}` : '/api/mail/accounts', {
         method: initial ? 'PATCH' : 'POST',
@@ -206,6 +211,20 @@ export function MailAccountDialog({ open, initial, onClose, onSaved }: Props) {
             <Checkbox checked={smtpSecure} onCheckedChange={v => setSmtpSecure(v === true)} />
             SMTP SSL (Port 465) · bei 587 meist STARTTLS ohne Haken
           </label>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="mail-signature">Signatur (HTML)</Label>
+            <Textarea
+              id="mail-signature"
+              value={signatureHtml}
+              onChange={e => setSignatureHtml(e.target.value)}
+              placeholder='<p>Mit freundlichen Grüßen<br>Ihr Name<br><img src="https://signatur.it-roof.de/img.png" alt="Logo" /></p>'
+              className="min-h-24 font-mono text-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              Wird automatisch an neue Mails und Antworten angehängt. HTML-Tags werden unterstützt.
+            </p>
+          </div>
 
           {error && <p className="text-sm text-danger">{error}</p>}
           <DialogFooter className="px-0">

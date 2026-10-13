@@ -40,6 +40,8 @@ export function MailCompose({ open, mode, mailboxes, mailboxId, source, onClose,
   const [cc, setCc] = useState('');
   const [subject, setSubject] = useState('');
   const [text, setText] = useState('');
+  const [isHtml, setIsHtml] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +104,7 @@ export function MailCompose({ open, mode, mailboxes, mailboxId, source, onClose,
           cc,
           subject,
           text,
+          is_html: isHtml,
           in_reply_to: mode === 'reply' || mode === 'replyAll' || mode === 'draft' ? source?.message_id_header ?? null : null,
           references: mode === 'forward' || mode === 'new' || !source
             ? null
@@ -152,11 +155,11 @@ export function MailCompose({ open, mode, mailboxes, mailboxId, source, onClose,
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <SaveForm onSave={send} textareaEnter="mod" className="flex flex-col gap-3">
+        <SaveForm onSave={send} textareaEnter="mod" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
           {mailboxes.length > 1 && (
             <div className="flex flex-col gap-1.5">
               <Label>Von</Label>
@@ -183,21 +186,46 @@ export function MailCompose({ open, mode, mailboxes, mailboxId, source, onClose,
             <Label htmlFor="mail-subj">Betreff</Label>
             <Input id="mail-subj" value={subject} onChange={e => setSubject(e.target.value)} />
           </div>
-          <Textarea
-            value={text}
-            onChange={e => setText(e.target.value)}
-            className="min-h-48 font-mono text-sm"
-          />
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" checked={isHtml} onChange={e => setIsHtml(e.target.checked)} />
+              HTML-Modus
+            </label>
+            {isHtml && (
+              <label className="flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={showPreview} onChange={e => setShowPreview(e.target.checked)} />
+                Vorschau
+              </label>
+            )}
+          </div>
+          {showPreview && isHtml ? (
+            <div className="flex flex-col gap-1.5">
+              <Label>Vorschau</Label>
+              <iframe
+                title="HTML-Vorschau"
+                sandbox="allow-same-origin"
+                srcDoc={text}
+                className="min-h-48 w-full rounded-md border border-input bg-background"
+              />
+            </div>
+          ) : (
+            <Textarea
+              value={text}
+              onChange={e => setText(e.target.value)}
+              placeholder={isHtml ? '<p>Nachricht...</p>' : 'Nachricht...'}
+              className={`min-h-48 ${isHtml ? 'font-mono text-xs' : 'text-sm'}`}
+            />
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
-          <DialogFooter className="px-0">
-            <Button type="button" variant="outline" onClick={() => void saveDraft()} disabled={saving}>
-              Entwurf
-            </Button>
-            <Button type="submit" disabled={saving || !to.trim()}>
-              {saving ? 'Senden…' : 'Senden'}
-            </Button>
-          </DialogFooter>
         </SaveForm>
+        <DialogFooter className="shrink-0 px-0 pt-3">
+          <Button type="button" variant="outline" onClick={() => void saveDraft()} disabled={saving}>
+            Entwurf
+          </Button>
+          <Button type="submit" disabled={saving || !to.trim()} onClick={send}>
+            {saving ? 'Senden…' : 'Senden'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
