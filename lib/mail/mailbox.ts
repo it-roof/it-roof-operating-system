@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { decryptSecret, encryptSecret } from '@/lib/crypto/secret-box';
+import { decryptSecret, encryptSecret, SecretDecryptError } from '@/lib/crypto/secret-box';
 import { db } from '@/lib/db';
 import { mailbox } from '@/lib/schema';
 import type { MailboxPublic } from '@/lib/mail/types';
@@ -48,7 +48,12 @@ export async function getMailboxCredentials(id: string, userId?: string): Promis
     .where(userId ? and(eq(mailbox.id, id), eq(mailbox.userId, userId)) : eq(mailbox.id, id))
     .limit(1);
   if (!row) return null;
-  return { ...row, password: decryptSecret(row.passwordEncrypted) };
+  try {
+    return { ...row, password: decryptSecret(row.passwordEncrypted) };
+  } catch (err) {
+    if (err instanceof SecretDecryptError) throw err;
+    throw new SecretDecryptError();
+  }
 }
 
 export { toPublic as mailboxToPublic, encryptSecret };
